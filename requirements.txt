@@ -1,0 +1,5 @@
+strax
+scipy
+pandas
+numpy
+tqdm

@@ -10,4 +10,4 @@ setuptools.setup(name='straxbra',
                  install_requires=requires,
                  python_requires='>=3.7',
                  packages=setuptools.find_packages(),
-                 )
+    )

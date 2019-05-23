@@ -4,7 +4,7 @@ import tqdm
 import pandas as pd
 
 export, __all__ = strax.exporter()
-
+from . import plugins
 
 @export
 class XebraContext(strax.Context):
@@ -12,6 +12,10 @@ class XebraContext(strax.Context):
     std_dtypes = ('raw_events', 'records', 'peaks', 'events', 'event_info')
 
     def __init__(self, *args, **kwargs):
+        if 'storage' not in kwargs:
+            kwargs['storage'] = '/data/storage/strax/cached'
+        if 'register' not in kwargs and 'register_all' not in kwargs:
+            kwargs['register_all'] = plugins
         super().__init__(*args, **kwargs)
 
     def get_array(self, run_id, *args, **kwargs) -> np.ndarray:

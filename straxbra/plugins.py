@@ -1,29 +1,34 @@
-import glob
 import os
+import shutil
 
 import numpy as np
 import numba
 
+from . import utils
 import strax
 export, __all__ = strax.exporter()
 
 # V/adc * (sec/sample) * (1/resistance) * (1/electron charge)
 adc_to_e = (2.25/2**14) * (1e-9) * (1/50) * (1/1.602e-19)
 
-to_pe = np.ones(7)*adc_to_e/6e6
-
 
 @export
 @strax.takes_config(
     strax.Option('input_dir', type=str, track=False,
-                 default='/data/storage/strax/raw',
+                 #default_by_run=utils.GetRawPath,
+                 default='/data/storage/strax/raw/run',
                  help='The directory with the data'),
     strax.Option('readout_threads', type=int, track=False,
-                 default=2, help='How many readout threads were used'),
+                 default_by_run=utils.GetReadoutThreads,
+                 help='How many readout threads were used'),
+    strax.Option('safe_break', default=1000, track=False,
+                 help='Time in ns between pulse starts indicating a safe break'),
+    strax.Option('erase_reader', default=False, track=False,
+                 help='Delete reader data after processing'),
 )
-class RecordReader(strax.Plugin):
+class DAQReader(strax.ParallelSourcePlugin):
     """
-    Reads records in from disk
+    Reads records in from disk. A nearly identical copy of straxen.DAQReader
     """
     provides = 'raw_records'
     depends_on = tuple()
@@ -33,6 +38,23 @@ class RecordReader(strax.Plugin):
     def chunk_folder(self, chunk_i):
         return os.path.join(self.config['input_dir'], f'{chunk_i:06d}')
 
+    def chunk_paths(self, chunk_i):
+        p = self.chunk_folder(chunk_i)
+        result = []
+        for q in [p + '_pre', p, p + '_post']:
+            if os.path.exists(q):
+                n_files = len(os.listdir(q))
+                if n_files >= self.config['readout_threads']:
+                    result.append(q)
+                else:
+                    print(f'Found incomplete folder {q}: found {n_files} files '
+                          f'but expected {self.config["readout_threads"]}. Waiting '
+                          f'for more...')
+                    result.append(False)
+            else:
+                result.append(False)
+        return tuple(result)
+
     def source_finished(self):
         end_dir = os.path.join(self.config['input_dir'], 'THE_END')
         if not os.path.exists(end_dir):
@@ -40,26 +62,41 @@ class RecordReader(strax.Plugin):
         return len(os.listdir(end_dir)) >= self.config['readout_threads']
 
     def is_ready(self, chunk_i):
-        chunk = self.chunk_folder(chunk_i)
-        if not os.path.exists(chunk):
-            return False
-        next_chunk = self.chunk_folder(chunk_i + 1)
-        if os.path.exists(next_chunk):
-            return len(os.listdir(next_chunk)) >= self.config['readout_threads']
-        return self.source_finished()
+        ended = self.source_finished()
+        pre, current, post = self.chunk_paths(chunk_i)
+        next_ahead = os.path.exists(self.chunk_folder(chunk_i + 1))
+        if (current and (
+                (pre and post
+                    or chunk_i == 0 and post
+                    or ended and (pre and not next_ahead)))):
+            return True
+        return False
 
-    def load_chunk(self, folder):
+    def load_chunk(self, folder, kind='central'):
         records = np.concatenate([strax.load_file(os.path.join(folder,f),
-                                                  'blosc',
-                                                   strax.record_dtype())
+                                                  compressor='blosc',
+                                                  dtype=strax.record_dtype())
                                   for f in os.listdir(folder)])
         records = strax.sort_by_time(records)
-        return records
+        if kind == 'central':
+            result = records
+        else:
+            result = strax.from_break(
+                    records,
+                    safe_break = self.config['safe_break'],
+                    left = kind == 'post',
+                    tolerant=True)
+        if self.config['erase']:
+            shutil.rmtree(folder)
+        return result
 
     def compute(self, chunk_i):
-        fp = self.chunk_folder(chunk_i)
-        records = self.load_chunk(fp)
-
+        pre, current, post = self.chunk_paths(chunk_i)
+        records = np.concatenate(
+                ([self.load_chunk(pre, kind='pre')] if pre else [])
+                + [self.load_chunk(current)]
+                + ([self.load_chunk(post, kind='post')] if post else [])
+        )
         strax.baseline(records)
         strax.integrate(records)
 
@@ -69,12 +106,94 @@ class RecordReader(strax.Plugin):
                   f'({len(records)} records, '
                   f'{timespan_sec:.1f} live seconds)')
         else:
-            print(f'{chunk_i}: read an empty chunk!')
+            print(f'{chunk_i}: chunk empty!')
 
         return records
 
 
 @export
+@strax.takes_config(
+        strax.Option('left', track=False, default=45, type=int,
+                     help='Left edge of integration (inclusive)'),
+        strax.Option('right', track=False, default=65, type=int,
+                     help='Right edge of integration (exlusive)'),
+        strax.Option('channels', type=list, default=list(range(8)),
+                     help='Which channels to do'),
+)
+class LEDcal(strax.Plugin):
+    """
+    Does LED calibration
+    """
+    __version__ = '0.0.1'
+    depends_on = ('raw_records',)
+    provides = 'led_cal'
+    save_when=strax.SaveWhen.NEVER
+
+    def compute(self, raw_records):
+        bins = np.linspace(-100, 900, 100)
+        bin_centers = 0.5*(bins[1:] + bins[:-1])
+        fit_results = []
+        fit_uncert = []
+        last_results = utils.GetLastGains()
+        if last_results is None:
+            last_results = [[
+                    10, # 0pe mean
+                    15, # 0pe sigma
+                    0, # 0pe counts
+                    200, # 1pe mean
+                    150, # 1pe sigma
+                    0, # 1pe counts
+                    400, # 2pe mean
+                    400, # 2pe sigma
+                    0, # 2pe counts
+                ] for _ in range(len(self.config['channels']))]
+        for ch in self.config['channels']:
+            m = raw_records['channel'] == ch
+            left = self.config['left']
+            right = self.config['right']
+            n, _ = np.histogram(raw_records['data'][m,left:right].sum(axis=1),
+                                bins=bins)
+            sigma = np.maximum(np.sqrt(n), np.ones_like(n))
+            cts = n.sum()
+            bounds = np.array([
+                [-50, last_results[ch][0], 50],  # 0pe mean
+                [1, last_results[ch][1], 30],    # 0pe sigma
+                [cts/100, cts, 5*cts],   # 0pe counts
+                [50, last_results[ch][3], 500],  # spe mean
+                [10, last_results[ch][4], 400],  # spe sigma
+                [cts/1e4, cts/1e3, cts/10],   # spe counts
+                [200, last_results[ch][6], 1000],  # dpe mean
+                [10, last_results[ch][7], 1000], # dpe sigma
+                [0, cts/1e6, cts/1e3],     # dpe counts
+            ])
+            popt, pconv = curve_fit(fit_func, bin_centers, n, p0=bounds[:,1],
+                    sigma=sigma, bounds=bounds[:,[0,2]].T)
+            fit_results.append(list(popt))
+            fit_uncert.append(list(np.sqrt(np.diag(pconv))))
+        fit_results = np.array(fit_results)
+        fit_uncert = np.array(fit_results)
+
+        utils.update_gains(fit_results[:,3], fit_results, fit_uncert)
+
+    @staticmethod
+    def fit_func(x, *args):
+        ret = 0
+        for i in range(0, len(args), 3):
+            if len(args) > i:
+                ret += utils.gaus(x, *args[i:i+3])
+            else:
+                break
+        return ret
+
+
+@export
+@strax.takes_config(
+        strax.Option('to_pe', track=False,
+                     default_by_run=utils.GetGains,
+                     help='PMT gains'),
+        strax.Option('min_gain', track=False, type=float,
+                     default=1e5, help='Minimum PMT gain'),
+)
 class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
@@ -90,7 +209,11 @@ class Records(strax.Plugin):
 
     def compute(self, raw_records):
         # Remove records from channels for which the gain is unknown
-        r = raw_records[raw_records['channel'] < len(to_pe)]
+        # or low
+        channels_to_cut = np.argwhere(self.config['to_pe'] < self.config['min_gain'])
+        r = raw_records
+        for ch in channels_to_cut.reshape(-1):
+            r = r[r['channel'] != ch]
 
         hits = strax.find_hits(r)
         strax.cut_outside_hits(r, hits)
@@ -117,6 +240,9 @@ class Records(strax.Plugin):
                      help='Minimum prominence height to split peaks'),
         strax.Option('split_min_ratio', track=False, default=4,
                      help='Minimum prominence ratio to split peaks'),
+        strax.Option('to_pe', track=False,
+                     default_by_run=utils.GetGains,
+                     help='PMT gains'),
 )
 class Peaks(strax.Plugin):
     """
@@ -126,14 +252,14 @@ class Peaks(strax.Plugin):
     data_kind = 'peaks'
     parallel = True
     rechunk_on_save = True
-    dtype = strax.peak_dtype(n_channels=len(to_pe))
+    dtype = strax.peak_dtype(n_channels=8)  # TODO something better
 
     def compute(self, records):
         r = records
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
         hits = strax.sort_by_time(hits)
 
-        peaks = strax.find_peaks(hits, to_pe,
+        peaks = strax.find_peaks(hits, self.config['to_pe'],
                                  result_dtype=self.dtype,
                                  gap_threshold=self.config['peak_gap_threshold'],
                                  left_extension=self.config['peak_left_extension'],
@@ -141,9 +267,9 @@ class Peaks(strax.Plugin):
                                  min_hits=self.config['peak_min_hits'],
                                  min_area=self.config['peak_min_area'],
                                  max_duration=self.config['peak_max_duration'])
-        strax.sum_waveform(peaks, r, to_pe)
+        strax.sum_waveform(peaks, r, self.config['to_pe'])
 
-        peaks = strax.split_peaks(peaks, r, to_pe,
+        peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   min_height=self.config['split_min_height'],
                                   min_ratio=self.config['min_split_ratio'])
 
@@ -235,7 +361,7 @@ class PeakPositions(strax.Plugin):
 
     def setup(self):
 
-        self.pmt_mask = to_pe[:self.config['top_pmts']] > 0
+        self.pmt_mask = self.config['to_pe'][:self.config['top_pmts']] > 0
         pmt_angles = np.linspace(0, 2*np.pi, 6, endpoint=False)
         angle_offset = -2*np.pi/3  # position of PMT1
         pmt_angles = pmt_offset - pmt_angles
@@ -303,7 +429,7 @@ class PeakClassification(strax.Plugin):
     strax.Option('min_area_fraction', default=0.5,
                  help='The area of competing peaks must be at least '
                       'this fraction of that of the considered peak'),
-    strax.Option('nearby_window', default=int(1e7),
+    strax.Option('nearby_window', default=int(1e6),
                  help='Peaks starting within this time window (on either side)'
                       'in ns count as nearby.'),
 )
@@ -350,13 +476,13 @@ class NCompeting(strax.OverlapWindowPlugin):
     strax.Option('trigger_max_competing', default=7,
                  help='Peaks must have FEWER nearby larger or slightly smaller'
                       ' peaks to cause events'),
-    strax.Option('left_event_extension', default=int(1e4),
+    strax.Option('left_event_extension', default=int(50e3),
                  help='Extend events this many ns to the left from each '
                       'triggering peak'),
-    strax.Option('right_event_extension', default=int(1e4),
+    strax.Option('right_event_extension', default=int(50e3),
                  help='Extend events this many ns to the right from each '
                       'triggering peak'),
-    strax.Option('max_event_duration', default=int(1e5),
+    strax.Option('max_event_duration', default=int(200e3),
                  help='Events longer than this are forcefully ended, '
                       'triggers in the truncated part are lost!'),
 )
@@ -545,7 +671,7 @@ class EventPositions(strax.Plugin):
     strax.Option(
         'electron_lifetime',
         help="Electron lifetime (ns)",
-        default=40000)
+        default_by_run=utils.GetELifetime)
 )
 class CorrectedAreas(strax.Plugin):
     depends_on = ['event_basics', 'event_positions']

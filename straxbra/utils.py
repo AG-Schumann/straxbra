@@ -2,6 +2,8 @@ from pymongo import MongoClient
 from pymongo.son_manipulator import ObjectId
 import os
 import numpy as np
+import datetime
+import time
 
 
 __client = MongoClient(os.environ['DISPATCHER_URI'])
@@ -16,12 +18,12 @@ def GetRawPath(run_id):
     doc = db['runs'].find_one({'run_id' : int(run_id)})
     if doc is not None:
         return doc['data']['raw']['location']
-    return '/data/storage/strax/raw'
+    return '/data/storage/strax/raw/%s' % run_id
 
 def GetReadoutThreads(run_id):
     doc = db['runs'].find_one({'run_id' : int(run_id)})
     if doc is not None:
-        return doc['config']['processing_threads']['charon']
+        return doc['config']['processing_threads']['charon_reader_0']
     return 2
 
 def GetGains(run_id):
@@ -41,16 +43,30 @@ def GetGains(run_id):
 def GetELifetime(run_id):
     return 10e3 # 10 us
 
-def UpdateGains(gains, fit_results, fit_uncertainties):
-    doc = {
-            'gains' : list(gains),
-            'fit_results' : [list(a) for a in fit_results],
-            'fit_uncertainties' : [list(a) for a in fit_uncertainties],
-        }
-    db['pmt_gains'].insert_one(doc)
+def UpdateGains(bin_centers, histos, fit_results, fit_uncertainties):
+    db['pmt_gains'].insert_one({
+            'bin_centers' : bin_centers.tolist(),
+            'histograms' : histos.tolist(),
+            'gains' : fit_results[:,3].tolist(),
+            'fit_results' : fit_results.tolist(),
+            'fit_uncertainties' : fit_uncertainties.tolist(),
+    })
 
 def GetLastGains():
     doc = list(db['pmt_gains'].find({}).sort([('_id', -1)]).limit(1))[0]
     if 'fit_results' in doc:
         return doc['fit_results']
     return None
+
+def GetRunStart(run_id):
+    rundoc = db['runs'].find_one({'run_id' : int(run_id)})
+    if rundoc is not None:
+        return int(rundoc.timestamp()*1e9)
+    return int(time.time()*1e9)
+
+def GetNChan(run_id):
+    rundoc = db['runs'].find_one({'run_id' : int(run_id)})
+    if rundoc is not None:
+        board_id = rundoc['config']['boards'][0]['board']
+        return len(rundoc['config']['channels'][str(board_id)])
+    return 8

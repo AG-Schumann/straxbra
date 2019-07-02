@@ -15,16 +15,20 @@ adc_to_e = (2.25/2**14) * (1e-9) * (1/50) * (1/1.602e-19)
 @export
 @strax.takes_config(
     strax.Option('input_dir', type=str, track=False,
-                 #default_by_run=utils.GetRawPath,
-                 default='/data/storage/strax/raw/run',
+                 default_by_run=utils.GetRawPath,
                  help='The directory with the data'),
     strax.Option('readout_threads', type=int, track=False,
                  default_by_run=utils.GetReadoutThreads,
                  help='How many readout threads were used'),
     strax.Option('safe_break', default=1000, track=False,
                  help='Time in ns between pulse starts indicating a safe break'),
+    strax.Option('do_breaks', default=True, track=False,
+                 help='Do the pulse breaking'),
     strax.Option('erase_reader', default=False, track=False,
                  help='Delete reader data after processing'),
+    strax.Option('run_start', type=int, track=False,
+                 default_by_run=utils.GetRunStart,
+                 help='Start time of the run in ns'),
 )
 class DAQReader(strax.ParallelSourcePlugin):
     """
@@ -81,13 +85,17 @@ class DAQReader(strax.ParallelSourcePlugin):
         if kind == 'central':
             result = records
         else:
-            result = strax.from_break(
+            if self.config['do_breaks']:
+                result = strax.from_break(
                     records,
                     safe_break = self.config['safe_break'],
                     left = kind == 'post',
                     tolerant=True)
-        if self.config['erase']:
+            else:
+                result = records
+        if self.config['erase_reader']:
             shutil.rmtree(folder)
+        result['time'] += self.config['run_start']
         return result
 
     def compute(self, chunk_i):
@@ -111,11 +119,10 @@ class DAQReader(strax.ParallelSourcePlugin):
         return records
 
 
-@export
 @strax.takes_config(
-        strax.Option('left', track=False, default=45, type=int,
+        strax.Option('left', track=False, default=40, type=int,
                      help='Left edge of integration (inclusive)'),
-        strax.Option('right', track=False, default=65, type=int,
+        strax.Option('right', track=False, default=70, type=int,
                      help='Right edge of integration (exlusive)'),
         strax.Option('channels', type=list, default=list(range(8)),
                      help='Which channels to do'),
@@ -130,10 +137,11 @@ class LEDcal(strax.Plugin):
     save_when=strax.SaveWhen.NEVER
 
     def compute(self, raw_records):
-        bins = np.linspace(-100, 900, 100)
+        bins = np.linspace(-50, 900, 100)
         bin_centers = 0.5*(bins[1:] + bins[:-1])
         fit_results = []
         fit_uncert = []
+        histos = []
         last_results = utils.GetLastGains()
         if last_results is None:
             last_results = [[
@@ -158,7 +166,7 @@ class LEDcal(strax.Plugin):
             bounds = np.array([
                 [-50, last_results[ch][0], 50],  # 0pe mean
                 [1, last_results[ch][1], 30],    # 0pe sigma
-                [cts/100, cts, 5*cts],   # 0pe counts
+                [cts/100, cts, 10*cts],   # 0pe counts
                 [50, last_results[ch][3], 500],  # spe mean
                 [10, last_results[ch][4], 400],  # spe sigma
                 [cts/1e4, cts/1e3, cts/10],   # spe counts
@@ -166,23 +174,24 @@ class LEDcal(strax.Plugin):
                 [10, last_results[ch][7], 1000], # dpe sigma
                 [0, cts/1e6, cts/1e3],     # dpe counts
             ])
-            popt, pconv = curve_fit(fit_func, bin_centers, n, p0=bounds[:,1],
+            popt, pconv = curve_fit(self.fit_func, bin_centers, n, p0=bounds[:,1],
                     sigma=sigma, bounds=bounds[:,[0,2]].T)
-            fit_results.append(list(popt))
-            fit_uncert.append(list(np.sqrt(np.diag(pconv))))
+            histos.append(n.tolist())
+            fit_results.append(popt.tolist())
+            fit_uncert.append(np.sqrt(np.diag(pconv)).tolist())
+        histos = np.array(histos)
         fit_results = np.array(fit_results)
         fit_uncert = np.array(fit_results)
 
-        utils.update_gains(fit_results[:,3], fit_results, fit_uncert)
+        utils.update_gains(bin_centers, histos, fit_results, fit_uncert)
+
+        return None
 
     @staticmethod
     def fit_func(x, *args):
         ret = 0
         for i in range(0, len(args), 3):
-            if len(args) > i:
-                ret += utils.gaus(x, *args[i:i+3])
-            else:
-                break
+            ret += utils.gaus(x, *args[i:i+3])
         return ret
 
 
@@ -215,6 +224,7 @@ class Records(strax.Plugin):
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]
 
+        strax.zero_out_of_bounds(r)
         hits = strax.find_hits(r)
         strax.cut_outside_hits(r, hits)
         return r
@@ -243,6 +253,8 @@ class Records(strax.Plugin):
         strax.Option('to_pe', track=False,
                      default_by_run=utils.GetGains,
                      help='PMT gains'),
+        strax.Option('n_channels', track=False, default_by_tun=utils.GetNChan,
+                     type=int, help='How many channels'),
 )
 class Peaks(strax.Plugin):
     """
@@ -252,7 +264,9 @@ class Peaks(strax.Plugin):
     data_kind = 'peaks'
     parallel = True
     rechunk_on_save = True
-    dtype = strax.peak_dtype(n_channels=8)  # TODO something better
+
+    def infer_dtype(self):
+        return strax.peak_dtype(n_channels=self.config['n_channels'])  # TODO un-hardcode
 
     def compute(self, records):
         r = records
@@ -327,13 +341,15 @@ class PeakBasics(strax.Plugin):
         area_top = (p['area_per_channel'][:, self.config['top_pmts']]
                     * to_pe[self.config['top_pmts']].reshape(1, -1)).sum(axis=1)
         m = p['area'] > 0
+        r['area_fraction_top'] = np.nan * np.ones_like(m)
         r['area_fraction_top'][m] = area_top[m]/p['area'][m]
-        r['area_fraction_top'][~m] = np.nan * np.ones((~m).sum())
         return r
 
 
 @export
 @strax.takes_config(
+    strax.Option('to_pe', track=False, help='PMT gains',
+                     default_by_run=utils.GetGains),
     strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
@@ -357,7 +373,7 @@ class PeakPositions(strax.Plugin):
 
     pmt_locations = np.zeros((7,2))  # top only
 
-    transfer_mask = np.arange(7)  # s2-top-channel to pmt-location
+    daq_to_location_map = np.arange(7)  # s2-top-channel to pmt-location
 
     def setup(self):
 
@@ -366,14 +382,15 @@ class PeakPositions(strax.Plugin):
         angle_offset = -2*np.pi/3  # position of PMT1
         pmt_angles = pmt_offset - pmt_angles
         pmt_radius = 30  # mm
-        self.pmt_positions = np.column((np.cos(pmt_angles), np.sin(pmt_angles)))* pmt_radius
+        self.pmt_positions = np.column((np.cos(pmt_angles),
+                                        np.sin(pmt_angles)))* pmt_radius
         self.pmt_positions = np.append(self.pmt_positions, [[0,0]])
 
     def compute(self, peaks):
         # Keep large peaks only
         results = np.nan * np.zeros(len(peaks), dtype=self.dtype)
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
-        p = peaks['area_per_channel'][peak_mask, self.transfer_mask]
+        p = peaks['area_per_channel'][peak_mask, self.daq_to_location_map]
         r = np.nan * np.zeros(len(p), self.dtype)
 
         if len(p) == 0:
@@ -389,7 +406,7 @@ class PeakPositions(strax.Plugin):
     @numba.jit(nopython=True, nogil=True, cache=True)
     def weighted_sum(area_by_channel, location_by_channel, results):
         for row_i, row in enumerate(area_by_channel):
-            results[row_i] = tuple(np.average(location_by_channel, weights = row, axis=0))
+            results[row_i] = tuple(np.average(location_by_channel, weights=row, axis=0))
         return results
 
 
@@ -397,7 +414,7 @@ class PeakPositions(strax.Plugin):
 @strax.takes_config(
     strax.Option('s1_max_width', default=150,
                  help="Maximum (IQR) width of S1s"),
-    strax.Option('s1_min_n_channels', default=1,
+    strax.Option('s1_min_n_channels', default=1,  # TODO improve
                  help="Minimum number of PMTs that must contribute to a S1"),
     strax.Option('s2_min_area', default=10,
                  help="Minimum area (PE) for S2s"),
@@ -414,7 +431,7 @@ class PeakClassification(strax.Plugin):
         p = peaks
         r = np.zeros(len(p), dtype=self.dtype)
 
-        is_s1 = p['n_channels'] > self.config['s1_min_n_channels']
+        is_s1 = p['n_channels'] >= self.config['s1_min_n_channels']
         is_s1 &= p['range_50p_area'] < self.config['s1_max_width']
         r['type'][is_s1] = 1
 
@@ -584,6 +601,11 @@ class EventBasics(strax.LoopPlugin):
                    f'Main S2 reconstructed X position (cm), uncorrected',),
                   (f'y_s2', np.float32,
                    f'Main S2 reconstructed Y position (cm), uncorrected',)]
+        dtype += [(f's2_largest_other', np.float32,
+                   f'Area of largest other s2'),
+                  (f's1_largest_other', np.float32,
+                   f'Area of largest other s1')
+                  ]
         return dtype
 
     def compute_loop(self, event, peaks):
@@ -609,6 +631,11 @@ class EventBasics(strax.LoopPlugin):
                 continue
 
             main_i = np.argmax(ss['area'])
+
+            if ss['n_competing'][main_i]>0 and len(ss['area'])>1:
+                other_i = np.argsort(ss['area'])[-2]
+                result[f's{s_i}_largest_other'] = ss['area'][other_i]
+
             result[f's{s_i}_index'] = s_indices[main_i]
             s = main_s[s_i] = ss[main_i]
 
@@ -630,7 +657,7 @@ class EventBasics(strax.LoopPlugin):
 @strax.takes_config(
     strax.Option(
         name='electron_drift_velocity',
-        help='Vertical electron drift velocity in cm/ns (1e4 m/ms)',
+        help='Vertical electron drift velocity in cm/ns (1e4 mm/us)',
         default=1.3325e-4
     ),
 )
@@ -638,22 +665,21 @@ class EventPositions(strax.Plugin):
     depends_on = ('event_basics',)
     dtype = [
         ('x', np.float32,
-         'Interaction x-position, field-distortion corrected (cm)'),
+         'Interaction x-position (mm)'),
         ('y', np.float32,
-         'Interaction y-position, field-distortion corrected (cm)'),
+         'Interaction y-position (mm)'),
         ('z', np.float32,
-         'Interaction z-position, field-distortion corrected (cm)'),
+         'Interaction z-position (mm)'),
         ('r', np.float32,
-         'Interaction radial position, field-distortion corrected (cm)'),
-        ('z_naive', np.float32,
-         'Interaction z-position using mean drift velocity only (cm)'),
-        ('r_naive', np.float32,
-         'Interaction r-position using observed S2 positions directly (cm)'),
+         'Interaction r-position (mm)'),
         ('theta', np.float32,
          'Interaction angular position (radians)')]
 
     def compute(self, events):
+        scale = 1
         z_obs = - self.config['electron_drift_velocity'] * events['drift_time']
+        # convert from cm to mm
+        z_obs *= 10
 
         orig_pos = np.vstack([events['x_s2'], events['y_s2'], z_obs]).T
         r_obs = np.linalg.norm(orig_pos[:, :2], axis=1)
@@ -661,7 +687,7 @@ class EventPositions(strax.Plugin):
         result = dict(x=orig_pos[:, 0] * scale,
                       y=orig_pos[:, 1] * scale,
                       z=z_obs,
-                      r_naive=r_obs,
+                      r=r_obs,
                       theta=np.arctan2(orig_pos[:, 1], orig_pos[:, 0]))
 
         return result
@@ -721,7 +747,8 @@ class EnergyEstimates(strax.Plugin):
         el = w * events['cs1'] / self.config['g1']
         ec = w * events['cs2'] / self.config['g2']
         return dict(e_light=el,
-                    e_charge=ec)
+                    e_charge=ec,
+                    e_ces=el+ec)
 
 
 class EventInfo(strax.MergeOnlyPlugin):

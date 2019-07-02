@@ -19,7 +19,7 @@ class XebraContext(strax.Context):
         super().__init__(*args, **kwargs)
 
     def get_array(self, run_id, *args, **kwargs) -> np.ndarray:
-        if isinstance(run_id, str) and len(run_id) > 5:  # runlist from website
+        if isinstance(run_id, str) and len(run_id) > 8:  # runlist from website
             run_id = [f'{int(run_id[i:i+4],16)}' for i in range(0, len(run_id), 4)]
         if isinstance(run_id, (str, int)):
             return super().get_array(run_id, *args, **kwargs)
@@ -29,7 +29,7 @@ class XebraContext(strax.Context):
                                for run in tqdm.tqdm(run_id)])
 
     def get_df(self, run_id, *args, **kwargs) -> pd.DataFrame:
-        if isinstance(run_id, str) and len(run_id) > 5:  # runlist from website
+        if isinstance(run_id, str) and len(run_id) > 8:  # runlist from website
             run_id = [f'{int(run_id[i:i+4],16)}' for i in range(0, len(run_id), 4)]
         if isinstance(run_id, (str, int)):
             return super().get_df(run_id, *args, **kwargs)

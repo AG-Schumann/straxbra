@@ -8,8 +8,8 @@ from . import utils
 import strax
 export, __all__ = strax.exporter()
 
-# V/adc * (sec/sample) * (1/resistance) * (1/electron charge)
-adc_to_e = (2.25/2**14) * (1e-9) * (1/50) * (1/1.602e-19)
+# V/adc * (sec/sample) * (1/resistance) * (1/electron charge) * (amplification)
+adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
 
 
 @export
@@ -17,6 +17,8 @@ adc_to_e = (2.25/2**14) * (1e-9) * (1/50) * (1/1.602e-19)
     strax.Option('input_dir', type=str, track=False,
                  default_by_run=utils.GetRawPath,
                  help='The directory with the data'),
+    strax.Option('experiment', type=str, track=False, default='xebra',
+                 help='Which experiment\'s data to load'),
     strax.Option('readout_threads', type=int, track=False,
                  default_by_run=utils.GetReadoutThreads,
                  help='How many readout threads were used'),
@@ -38,6 +40,9 @@ class DAQReader(strax.ParallelSourcePlugin):
     depends_on = tuple()
     dtype = strax.record_dtype()
     rechunk_on_save = False
+
+    def setup(self):
+        utils.experiment = self.config['experiment']
 
     def chunk_folder(self, chunk_i):
         return os.path.join(self.config['input_dir'], f'{chunk_i:06d}')
@@ -95,6 +100,7 @@ class DAQReader(strax.ParallelSourcePlugin):
                 result = records
         if self.config['erase_reader']:
             shutil.rmtree(folder)
+            #utils.RemoveRaw(self.config['input_dir'])
         result['time'] += self.config['run_start']
         return result
 
@@ -120,7 +126,7 @@ class DAQReader(strax.ParallelSourcePlugin):
 
 
 @strax.takes_config(
-        strax.Option('left', track=False, default=40, type=int,
+        strax.Option('left', track=False, default=50, type=int,
                      help='Left edge of integration (inclusive)'),
         strax.Option('right', track=False, default=70, type=int,
                      help='Right edge of integration (exlusive)'),
@@ -139,9 +145,11 @@ class LEDcal(strax.Plugin):
     def compute(self, raw_records):
         bins = np.linspace(-50, 900, 100)
         bin_centers = 0.5*(bins[1:] + bins[:-1])
-        fit_results = []
-        fit_uncert = []
-        histos = []
+        popts = []
+        pconvs = []
+        histograms = []
+        adc_to_pe = []
+        gains = []
         last_results = utils.GetLastGains()
         if last_results is None:
             last_results = [[
@@ -166,13 +174,13 @@ class LEDcal(strax.Plugin):
             bounds = np.array([
                 [-50, last_results[ch][0], 50],  # 0pe mean
                 [1, last_results[ch][1], 30],    # 0pe sigma
-                [cts/100, cts, 10*cts],   # 0pe counts
-                [50, last_results[ch][3], 500],  # spe mean
+                [cts, cts*10, cts*100],   # 0pe counts
+                [50, last_results[ch][3], 300],  # spe mean
                 [10, last_results[ch][4], 400],  # spe sigma
-                [cts/1e4, cts/1e3, cts/10],   # spe counts
+                [cts/100, cts/10, cts],   # spe counts
                 [200, last_results[ch][6], 1000],  # dpe mean
                 [10, last_results[ch][7], 1000], # dpe sigma
-                [0, cts/1e6, cts/1e3],     # dpe counts
+                [0, cts/1e4, cts/1e3],     # dpe counts
             ])
             popt, pconv = curve_fit(self.fit_func, bin_centers, n, p0=bounds[:,1],
                     sigma=sigma, bounds=bounds[:,[0,2]].T)
@@ -219,7 +227,7 @@ class Records(strax.Plugin):
     def compute(self, raw_records):
         # Remove records from channels for which the gain is unknown
         # or low
-        channels_to_cut = np.argwhere(self.config['to_pe'] < self.config['min_gain'])
+        channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
         r = raw_records
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]
@@ -232,7 +240,7 @@ class Records(strax.Plugin):
 
 @export
 @strax.takes_config(
-        strax.Option('hit_threshold', type=int, track=False, default=15,
+        strax.Option('hit_threshold', type=int, track=False, default=30,
                      help="Hitfinder threshold"),
         strax.Option('peak_gap_threshold', type=int, track=False, default=300,
                      help='Number of ns without hits to start a new peak'),
@@ -253,7 +261,7 @@ class Records(strax.Plugin):
         strax.Option('to_pe', track=False,
                      default_by_run=utils.GetGains,
                      help='PMT gains'),
-        strax.Option('n_channels', track=False, default_by_tun=utils.GetNChan,
+        strax.Option('n_channels', track=False, default_by_run=utils.GetNChan,
                      type=int, help='How many channels'),
 )
 class Peaks(strax.Plugin):
@@ -266,7 +274,7 @@ class Peaks(strax.Plugin):
     rechunk_on_save = True
 
     def infer_dtype(self):
-        return strax.peak_dtype(n_channels=self.config['n_channels'])  # TODO un-hardcode
+        return strax.peak_dtype(n_channels=self.config['n_channels'])
 
     def compute(self, records):
         r = records
@@ -278,14 +286,14 @@ class Peaks(strax.Plugin):
                                  gap_threshold=self.config['peak_gap_threshold'],
                                  left_extension=self.config['peak_left_extension'],
                                  right_extension=self.config['peak_right_extension'],
-                                 min_hits=self.config['peak_min_hits'],
+                                 #min_hits=self.config['peak_min_hits'],
                                  min_area=self.config['peak_min_area'],
                                  max_duration=self.config['peak_max_duration'])
         strax.sum_waveform(peaks, r, self.config['to_pe'])
 
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   min_height=self.config['split_min_height'],
-                                  min_ratio=self.config['min_split_ratio'])
+                                  min_ratio=self.config['split_min_ratio'])
 
         strax.compute_widths(peaks)
 
@@ -319,6 +327,8 @@ class PeakBasics(strax.Plugin):
             'max_pmt_area'), np.int32),
         (('Width (in ns) of the central 50% area of the peak',
             'range_50p_area'), np.float32),
+        (('Risetime (in ns) of the peak',
+            'risetime'), np.float32),
         (('Fraction of area seen by the top array',
             'area_fraction_top'), np.float32),
         (('Length of the peak waveform in samples',
@@ -335,6 +345,7 @@ class PeakBasics(strax.Plugin):
         r['endtime'] = p['time'] + p['dt'] * p['length']
         r['n_channels'] = (p['area_per_channel'] > 0).sum(axis=1)
         r['range_50p_area'] = p['width'][:, 5]
+        r['risetime'] = -p['area_decile_from_midpoint'][:,1]
         r['max_pmt'] = np.argmax(p['area_per_channel'], axis=1)
         r['max_pmt_area'] = np.max(p['area_per_channel'], axis=1)
 

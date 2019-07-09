@@ -9,11 +9,16 @@ from . import plugins
 @export
 class XebraContext(strax.Context):
 
-    std_dtypes = ('raw_events', 'records', 'peaks', 'events', 'event_info')
+    std_dtypes = ('raw_records', 'records', 'peaks', 'events', 'event_info')
 
     def __init__(self, *args, **kwargs):
+        experiment = kwargs.pop('experiment', 'xebra')
+        if 'config' not in kwargs:
+            kwargs['config'] = {'experiment' : experiment}
+        elif 'experiment' not in kwargs['config']:
+            kwargs['config']['experiment'] = experiment
         if 'storage' not in kwargs:
-            kwargs['storage'] = '/data/storage/strax/cached'
+            kwargs['storage'] = f'/data/storage/strax/cached/{experiment}/'
         if 'register' not in kwargs and 'register_all' not in kwargs:
             kwargs['register_all'] = plugins
         super().__init__(*args, **kwargs)
@@ -23,9 +28,7 @@ class XebraContext(strax.Context):
             run_id = [f'{int(run_id[i:i+4],16)}' for i in range(0, len(run_id), 4)]
         if isinstance(run_id, (str, int)):
             return super().get_array(run_id, *args, **kwargs)
-        return np.concatenate([super().get_array(run,
-                                                 *args,
-                                                 **kwargs)
+        return np.concatenate([super().get_array(run, *args, **kwargs) \
                                for run in tqdm.tqdm(run_id)])
 
     def get_df(self, run_id, *args, **kwargs) -> pd.DataFrame:

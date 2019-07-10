@@ -248,9 +248,9 @@ class Records(strax.Plugin):
                      help='Extend peaks by this many ns to the left'),
         strax.Option('peak_right_extension', type=int, track=False, default=150,
                      help='Extend peaks by this many ns to the right'),
-        strax.Option('peak_min_hits', type=int, track=False, default=2,
-                     help='Mininmum number of hits to form a peak'),
-        strax.Option('peak_min_area', track=False, default=0,
+        strax.Option('peak_min_chan', type=int, track=False, default=1,
+                     help='Mininmum number of channels to form a peak'),
+        strax.Option('peak_min_area', track=False, default=2,
                      help='Minimum area to form a peak'),
         strax.Option('peak_max_duration', type=int, track=False, default=int(20e3),
                      help='Peaks are forcibly ended after this many ns'),
@@ -286,7 +286,7 @@ class Peaks(strax.Plugin):
                                  gap_threshold=self.config['peak_gap_threshold'],
                                  left_extension=self.config['peak_left_extension'],
                                  right_extension=self.config['peak_right_extension'],
-                                 #min_hits=self.config['peak_min_hits'],
+                                 min_channels=self.config['peak_min_chan'],
                                  min_area=self.config['peak_min_area'],
                                  max_duration=self.config['peak_max_duration'])
         strax.sum_waveform(peaks, r, self.config['to_pe'])
@@ -302,8 +302,12 @@ class Peaks(strax.Plugin):
 
 @export
 @strax.takes_config(
-    strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
-                 type=list, help="Which PMTs are in the top array"))
+        strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
+                     type=list, help="Which PMTs are in the top array"),
+        strax.Option('to_pe', track=False,
+                     default_by_run=utils.GetGains,
+                     help='PMT gains'),
+)
 class PeakBasics(strax.Plugin):
     """
     Stolen from straxen, extended with risetime. Also replaces
@@ -350,7 +354,7 @@ class PeakBasics(strax.Plugin):
         r['max_pmt_area'] = np.max(p['area_per_channel'], axis=1)
 
         area_top = (p['area_per_channel'][:, self.config['top_pmts']]
-                    * to_pe[self.config['top_pmts']].reshape(1, -1)).sum(axis=1)
+                    * self.config['to_pe'][self.config['top_pmts']].reshape(1, -1)).sum(axis=1)
         m = p['area'] > 0
         r['area_fraction_top'] = np.nan * np.ones_like(m)
         r['area_fraction_top'][m] = area_top[m]/p['area'][m]
@@ -365,7 +369,7 @@ class PeakBasics(strax.Plugin):
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
                  help='Skip reconstruction if area (PE) is less than this',
-                 default=10)
+                 default=100)
 )
 class PeakPositions(strax.Plugin):
     """
@@ -382,42 +386,36 @@ class PeakPositions(strax.Plugin):
 
     parallel = False
 
-    pmt_locations = np.zeros((7,2))  # top only
-
-    daq_to_location_map = np.arange(7)  # s2-top-channel to pmt-location
-
     def setup(self):
 
-        self.pmt_mask = self.config['to_pe'][:self.config['top_pmts']] > 0
-        pmt_angles = np.linspace(0, 2*np.pi, 6, endpoint=False)
-        angle_offset = -2*np.pi/3  # position of PMT1
-        pmt_angles = pmt_offset - pmt_angles
-        pmt_radius = 30  # mm
-        self.pmt_positions = np.column((np.cos(pmt_angles),
-                                        np.sin(pmt_angles)))* pmt_radius
-        self.pmt_positions = np.append(self.pmt_positions, [[0,0]])
+        self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
+        self.pmt_mask[self.config['top_pmts']] = self.config['to_pe'][self.config['top_pmts']] > 0
+        pmt_x = np.array([-14.,-28,-14.,14.,28.,14.,0.])
+        pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])
+        self.pmt_positions = np.column_stack((pmt_x, pmt_y))
 
     def compute(self, peaks):
         # Keep large peaks only
-        results = np.nan * np.zeros(len(peaks), dtype=self.dtype)
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
-        p = peaks['area_per_channel'][peak_mask, self.daq_to_location_map]
-        r = np.nan * np.zeros(len(p), self.dtype)
+        p = peaks['area_per_channel'][peak_mask, :]
+        p = p[:, self.pmt_mask]
+        r = np.full_like(p, np.nan, dtype=self.dtype)
 
-        if len(p) == 0:
-            # Nothing to do, and .predict crashes on empty arrays
+        if len(p) >= 0:
+            r = self.weighted_sum(p, self.pmt_positions, r)
+        else:
             return dict(x=np.zeros(0, dtype=np.float32),
                         y=np.zeros(0, dtype=np.float32))
-
-        results[peak_mask] = self.weighted_sum(p, self.pmt_positions, r)
-
-        return dict(x=results[:, 0], y=results[:, 1])
+        if not r.flags['C_CONTIGUOUS']:
+            r = r.copy(order='C')
+        return r
 
     @staticmethod
-    @numba.jit(nopython=True, nogil=True, cache=True)
+    #@numba.jit(nopython=True, nogil=True, cache=True) # numba can't np.average :(
     def weighted_sum(area_by_channel, location_by_channel, results):
         for row_i, row in enumerate(area_by_channel):
-            results[row_i] = tuple(np.average(location_by_channel, weights=row, axis=0))
+            xy = np.average(location_by_channel, weights=row, axis=0)
+            results[row_i] = tuple(xy)
         return results
 
 
@@ -457,7 +455,7 @@ class PeakClassification(strax.Plugin):
     strax.Option('min_area_fraction', default=0.5,
                  help='The area of competing peaks must be at least '
                       'this fraction of that of the considered peak'),
-    strax.Option('nearby_window', default=int(1e6),
+    strax.Option('nearby_window', default=int(1e5),
                  help='Peaks starting within this time window (on either side)'
                       'in ns count as nearby.'),
 )
@@ -504,13 +502,13 @@ class NCompeting(strax.OverlapWindowPlugin):
     strax.Option('trigger_max_competing', default=7,
                  help='Peaks must have FEWER nearby larger or slightly smaller'
                       ' peaks to cause events'),
-    strax.Option('left_event_extension', default=int(50e3),
+    strax.Option('left_event_extension', default=int(50e6),
                  help='Extend events this many ns to the left from each '
                       'triggering peak'),
-    strax.Option('right_event_extension', default=int(50e3),
+    strax.Option('right_event_extension', default=int(50e6),
                  help='Extend events this many ns to the right from each '
                       'triggering peak'),
-    strax.Option('max_event_duration', default=int(200e3),
+    strax.Option('max_event_duration', default=int(100e6),
                  help='Events longer than this are forcefully ended, '
                       'triggers in the truncated part are lost!'),
 )
@@ -577,10 +575,10 @@ class Events(strax.OverlapWindowPlugin):
         # TODO: could this cause int overrun nonsense anywhere?
         fake_hits['length'] = peaks['endtime'] - peaks['time']
         fake_peaks = strax.find_peaks(
-            fake_hits, to_pe=np.zeros(1),
+            fake_hits, adc_to_pe=np.zeros(1),
             gap_threshold=gap_threshold,
             left_extension=left_extension, right_extension=right_extension,
-            min_hits=1, min_area=0,
+            min_area=0,
             max_duration=max_duration)
         return fake_peaks['time'], strax.endtime(fake_peaks)
 
@@ -602,6 +600,8 @@ class EventBasics(strax.LoopPlugin):
                         f's{i}_index'), np.int32),
                       ((f'Main S{i} area (PE), uncorrected',
                         f's{i}_area'), np.float32),
+                      ((f'Main S{i} area (PE), uncorrected, bottom PMTs only',
+                        f's{i}_area_b'), np.float32),
                       ((f'Main S{i} area fraction top',
                         f's{i}_area_fraction_top'), np.float32),
                       ((f'Main S{i} width (ns, 50% area)',
@@ -733,6 +733,7 @@ class CorrectedAreas(strax.Plugin):
 
 
 @strax.takes_config(
+    strax.Option('bottom_pmts', default=[0], help='PMTs in the bottom array'),
     strax.Option(
         'g1',
         help="S1 gain in PE / photons produced",

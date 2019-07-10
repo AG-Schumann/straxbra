@@ -6,16 +6,17 @@ import datetime
 import time
 
 
-__client = MongoClient(os.environ['DISPATCHER_URI'])
+__client = MongoClient(os.environ['MONGO_DAQ_URI'])
 db = __client['xebra_daq']
 experiment = 'xebra'
+MAX_RUN_ID = 999999  # because reasons
 
 def _GetRundoc(run_id):
-    query = {'run_id' : int(run_id), 'experiment' : experiment}
+    query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment' : experiment}
     doc = db['runs'].find_one(query)
-    if doc is None:
-        raise ValueError('No run with id %d' % run_id)
-    return doc
+    #if doc is None:
+    #    raise ValueError('No run with id %d' % run_id)
+    return doc  # returns None if no doc
 
 def gaus(x, mean, sigma, amp):
     log_amp = np.log(amp) - 0.5*np.log(2*np.pi*sigma**2)
@@ -25,17 +26,25 @@ def gaus(x, mean, sigma, amp):
 def GetRawPath(run_id):
     doc = _GetRundoc(run_id)
     if doc is not None:
-        return doc['data']['raw']['location']
+        try:
+            return doc['data']['raw']['location']
+        except KeyError:
+            pass
     return '/data/storage/strax/raw/unsorted/%s' % run_id
 
 def GetReadoutThreads(run_id):
     doc = _GetRundoc(run_id)
     if doc is not None:
-        return doc['config']['processing_threads']['charon_reader_0']
+        try:
+            return doc['config']['processing_threads']['charon_reader_0']
+        except KeyError:
+            pass
     return 2
 
 def GetGains(run_id):
     doc = _GetRundoc(run_id)
+    if doc is None:
+        return np.ones(8)
     run_start = ObjectId.from_datetime(doc['start'])
     try:
         earlier_doc = list(db['pmt_gains'].find({'_id' : {'$lte' : run_start}}).sort([('_id', -1)]).limit(1))[0]
@@ -80,12 +89,11 @@ def GetRunStart(run_id):
 def GetNChan(run_id):
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
-        print(rundoc)
         try:
             board_id = rundoc['config']['boards'][0]['board']
             return len(rundoc['config']['channels'][str(board_id)])
         except KeyError:
-            return 8
+            pass
     return 8
 
 def RemoveRaw(raw_path):

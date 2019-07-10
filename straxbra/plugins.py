@@ -2,6 +2,10 @@ import os
 import shutil
 
 import numpy as np
+from numpy import exp
+import math
+from scipy.optimize import minimize
+
 import numba
 
 from . import utils
@@ -368,58 +372,80 @@ class PeakBasics(strax.Plugin):
                  default=10)
 )
 class PeakPositions(strax.Plugin):
-    """
-    I actually wrote this
-    Version 0.0.1: weighted sum
-    Version 0.0.2: hopefully LRF or better
-    """
+    '''
+    Position Reconstruction for XeBRA with LRFs
+
+    Status: July 2019
+
+    Position reconstruction for XeBRA following the position reconstruction algorithm of Mercury
+    (employed in the LUX experiment, originally developed for the ZEPLIN-III dark matter experiment)
+    with light response functions (see https://arxiv.org/abs/1710.02752v2 and
+    https://arxiv.org/abs/1112.1481 ).
+    '''
     __version__ = "0.0.1"
     dtype = [('x', np.float32,
-              'Reconstructed S2 X position (cm), uncorrected'),
+              'Reconstructed S2 X position (mm), uncorrected'),
              ('y', np.float32,
-              'Reconstructed S2 Y position (cm), uncorrected')]
+              'Reconstructed S2 Y position (mm), uncorrected')]
     depends_on = ('peaks',)
 
     parallel = False
 
-    pmt_locations = np.zeros((7,2))  # top only
-
     daq_to_location_map = np.arange(7)  # s2-top-channel to pmt-location
 
-    def setup(self):
+    ## Function to return non-negative value corresponding to (radial position - radius TPC) if inside TPC,
+    ## used for constraints
+    @staticmethod
+    def insidevolume(inputs):
+        p_TPC_radius = 35
+        return (p_TPC_radius - np.sqrt(inputs[0]**2 + inputs[1]**2))
 
-        self.pmt_mask = self.config['to_pe'][:self.config['top_pmts']] > 0
-        pmt_angles = np.linspace(0, 2*np.pi, 6, endpoint=False)
-        angle_offset = -2*np.pi/3  # position of PMT1
-        pmt_angles = pmt_offset - pmt_angles
-        pmt_radius = 30  # mm
-        self.pmt_positions = np.column((np.cos(pmt_angles),
-                                        np.sin(pmt_angles)))* pmt_radius
-        self.pmt_positions = np.append(self.pmt_positions, [[0,0]])
+    ## Radial LRF model
+    ## from: Position Reconstruction in a Dual Phase Xenon Scintillation Detector (https://arxiv.org/abs/1112.1481)
+    @staticmethod
+    def eta(r, A, r0, a, b, alpha):
+        return A * exp( - a * (r/r0) / (1 + (r/r0) ** (1 - alpha)) - b / (1 + (r/r0) ** (- alpha)))
 
+    ## Position dependent LRF values individual PMTs from model
+    def LRF_PMTs(x, y, self):
+        ## PMT positions
+        PMT_position_x = np.array([-14.,-28,-14.,14.,28.,14.,0.])      # x-position PMTs in mm in cartesian coordinates
+        PMT_position_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])        # y-position PMTs in mm in cartesian coordinates
+        ## Fit parameters LRFs
+        ## MC driven (R_PTFE = 95 %, T_meshes = 89.770509 %, lambda_LXe = 100 cm);
+        ## To be iteratively determined from data later
+        fitparameters = np.array([np.array([ 0.58534179, 29.89341846, -0.3275816, 4.14715081, 2.61234684]), np.array([ 0.63546614, 28.49525342, -0.19651583, 3.76011493, 2.68672152]), np.array([ 0.58840586, 30.39015033, -0.38248759, 4.27642323, 2.56774842]), np.array([ 0.59111988, 31.38350968, -0.5760228, 4.64122418, 2.51311592]), np.array([ 0.63771524, 28.90663204, -0.26194541, 3.90052756, 2.66510948]), np.array([ 0.59030322, 30.55082687, -0.46183924, 4.39769959, 2.55446814]), np.array([ 0.53114467, 39.20861977, -17.93187819, 20.60397171, 2.27692367])])
+        ## LRF values for individual PMTs
+        LRF_PMTs_array = np.array([(self.eta(np.sqrt((x - PMT_position_x[j-1])**2 + (y - PMT_position_y[j-1])**2), *fitparameters[j-1])) for j in range(1,8)])
+        return LRF_PMTs_array / (np.sum(LRF_PMTs_array))
+
+    ## Reconstruct position inside S2 region
+    def reconstructed_position(input_array, self):
+        HFs_input = input_array / np.sum(input_array)
+        reconstruct = lambda x: np.sum(((self.LRF_PMTs(x[0], x[1]) - HFs_input)**2) / (self.LRF_PMTs(x[0], x[1])))
+        x0 = [0.001,0.001]
+        meth = 'SLSQP'
+        cons = ({'type': 'ineq', "fun": self.insidevolume})
+        res = minimize(reconstruct, x0, method=meth, constraints=cons)
+        return res.x
+
+    ## Compute reconstructed positions
     def compute(self, peaks):
-        # Keep large peaks only
+        ## Keep large peaks only
         results = np.nan * np.zeros(len(peaks), dtype=self.dtype)
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
         p = peaks['area_per_channel'][peak_mask, self.daq_to_location_map]
         r = np.nan * np.zeros(len(p), self.dtype)
 
         if len(p) == 0:
-            # Nothing to do, and .predict crashes on empty arrays
+            ## Nothing to do, and .predict crashes on empty arrays
             return dict(x=np.zeros(0, dtype=np.float32),
                         y=np.zeros(0, dtype=np.float32))
-
-        results[peak_mask] = self.weighted_sum(p, self.pmt_positions, r)
-
-        return dict(x=results[:, 0], y=results[:, 1])
-
-    @staticmethod
-    @numba.jit(nopython=True, nogil=True, cache=True)
-    def weighted_sum(area_by_channel, location_by_channel, results):
-        for row_i, row in enumerate(area_by_channel):
-            results[row_i] = tuple(np.average(location_by_channel, weights=row, axis=0))
-        return results
-
+        else:
+            for i in range(0, len(p)):
+                r[i] = self.reconstructed_position(p[i])
+            results[peak_mask] = r
+            return dict(x=results[:, 0], y=results[:, 1])
 
 @export
 @strax.takes_config(

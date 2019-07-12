@@ -394,20 +394,19 @@ class NCompeting(strax.OverlapWindowPlugin):
         return 2 * self.config['nearby_window']
 
     def compute(self, peaks):
-        results = np.zeros_like(peaks, dtype=self.dtype)
         results = n_competing=self.find_n_competing(
             peaks,
             window=self.config['nearby_window'],
-            fraction=self.config['min_area_fraction'],
-            results=results)
-        return results
+            fraction=self.config['min_area_fraction'])
+        return dict(n_competing=results)
 
     @staticmethod
     @numba.jit(nopython=True, nogil=True, cache=True)
-    def find_n_competing(peaks, window, fraction, results):
+    def find_n_competing(peaks, window, fraction):
         n = len(peaks)
         t = peaks['time']
         a = peaks['area']
+        results = np.zeros(n, dtype=np.int32)
 
         left_i = 0
         right_i = 0

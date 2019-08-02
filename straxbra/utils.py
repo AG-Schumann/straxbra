@@ -7,39 +7,31 @@ import time
 
 
 __client = MongoClient(os.environ['MONGO_DAQ_URI'])
-db = __client['xebra_daq']
-experiment = 'xebra'
+try:
+    experiment = os.environ['EXPERIMENT_NAME']
+except KeyError:
+    raise ImportError('No experiment name specified!')
+db = __client[f'{experiment}_daq']
 MAX_RUN_ID = 999999  # because reasons
 
 def _GetRundoc(run_id):
     query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment' : experiment}
     doc = db['runs'].find_one(query)
-    #if doc is None:
-    #    raise ValueError('No run with id %d' % run_id)
     return doc  # returns None if no doc
-
-def gaus(x, mean, sigma, amp):
-    log_amp = np.log(amp) - 0.5*np.log(2*np.pi*sigma**2)
-    log_exp = -(x - mu)**2/(2*sigma**2)
-    return np.exp(log_amp + log_exp)
 
 def GetRawPath(run_id):
     doc = _GetRundoc(run_id)
-    if doc is not None:
-        try:
-            return doc['data']['raw']['location']
-        except KeyError:
-            pass
-    return '/data/storage/strax/raw/unsorted/%s' % run_id
+    try:
+        return doc['data']['raw']['location']
+    except KeyError, TypeError:
+        return '/data/storage/strax/raw/unsorted/%s' % run_id
 
 def GetReadoutThreads(run_id):
     doc = _GetRundoc(run_id)
-    if doc is not None:
-        try:
-            return doc['config']['processing_threads']['charon_reader_0']
-        except KeyError:
-            pass
-    return 2
+    try:
+        return sum(doc['config']['processing_threads'].values())
+    except KeyError, TypeError:
+        return 1
 
 def GetGains(run_id):
     doc = _GetRundoc(run_id)
@@ -66,21 +58,19 @@ def GetELifetime(run_id):
 
 def GetRunStart(run_id):
     rundoc = _GetRundoc(run_id)
-    if rundoc is not None:
+    try:
         return int(rundoc['start'].timestamp()*1e9)
-    return int(time.time()*1e9)
+    except TypeError:
+        return int(time.time()*1e9)
 
 def GetNChan(run_id):
     rundoc = _GetRundoc(run_id)
-    if rundoc is not None:
-        try:
-            board_id = rundoc['config']['boards'][0]['board']
-            return len(rundoc['config']['channels'][str(board_id)])
-        except KeyError:
-            pass
-    return 8
+    channels = 0
+    try:
+        cfg = rundoc['config']
+        for board_cfg in cfg['boards']:
+            channels += len(cfg['channels'][str(board_cfg['board'])])
+        return channels
+    except KeyError, TypeError:
+        return 2  # strax has problems with 1 channel
 
-def RemoveRaw(raw_path):
-    run_id = int(raw_path.split('/')[-1])
-    db['runs'].update_one({'run_id' : run_id, 'experiment' : experiment},
-            {'$set' : {'data.raw.location' : 'deleted'}})

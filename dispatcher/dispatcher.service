@@ -1,0 +1,16 @@
+[Unit]
+Description=DAQ dispatching service
+Requires=mongod_xebra.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=3
+TimeoutSec=15
+User=darryl
+Group=appadmin
+EnvironmentFile=-/etc/default/daqspatch_env
+ExecStart=/software/anaconda3/env/strax/bin/python3 /software/straxbra-dev/dispatcher/dispatcher.py
+
+[Install]
+WantedBy=multi-user.target

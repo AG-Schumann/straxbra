@@ -132,6 +132,12 @@ class DAQReader(strax.ParallelSourcePlugin):
                      help='PMT gains'),
         strax.Option('min_gain', track=False, type=float,
                      default=1e5, help='Minimum PMT gain'),
+        strax.Option('hit_threshold', type=int, default=30,
+                     help="Hitfinder threshold"),
+        strax.Option('left_cut_extension', default=2,
+                     help='Cut up to this to many samples before a hit'),
+        strax.Option('right_cut_extension', default=15,
+                     help='Cut past this many samples after a hit'),
 )
 class Records(strax.Plugin):
     """
@@ -155,30 +161,30 @@ class Records(strax.Plugin):
             r = r[r['channel'] != ch]
 
         strax.zero_out_of_bounds(r)
-        hits = strax.find_hits(r)
-        strax.cut_outside_hits(r, hits)
+        hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
+        strax.cut_outside_hits(r, hits,
+                left_extension = self.config['left_cut_extension'],
+                right_extension = self.config['right_cut_extension'])
         return r
 
 
 @export
 @strax.takes_config(
-        strax.Option('hit_threshold', type=int, track=True, default=30,
+        strax.Option('hit_threshold', type=int, default=30,
                      help="Hitfinder threshold"),
-        strax.Option('peak_gap_threshold', type=int, track=True, default=300,
+        strax.Option('peak_gap_threshold', type=int, default=150,
                      help='Number of ns without hits to start a new peak'),
-        strax.Option('peak_left_extension', type=int, track=True, default=20,
+        strax.Option('peak_left_extension', type=int, default=20,
                      help='Extend peaks by this many ns to the left'),
-        strax.Option('peak_right_extension', type=int, track=True, default=150,
+        strax.Option('peak_right_extension', type=int, default=120,
                      help='Extend peaks by this many ns to the right'),
-        strax.Option('peak_min_chan', type=int, track=False, default=1,
+        strax.Option('peak_min_chan', type=int, default=1,
                      help='Mininmum number of channels to form a peak'),
-        strax.Option('peak_min_area', track=False, default=2,
+        strax.Option('peak_min_area', default=2,
                      help='Minimum area to form a peak'),
-        strax.Option('peak_max_duration', type=int, track=False, default=int(20e3),
-                     help='Peaks are forcibly ended after this many ns'),
-        strax.Option('split_min_height', track=False, default=25,
+        strax.Option('split_min_height', default=25,
                      help='Minimum prominence height to split peaks'),
-        strax.Option('split_min_ratio', track=False, default=4,
+        strax.Option('split_min_ratio', default=4,
                      help='Minimum prominence ratio to split peaks'),
         strax.Option('to_pe', track=False,
                      default_by_run=utils.GetGains,
@@ -209,9 +215,8 @@ class Peaks(strax.Plugin):
                                  left_extension=self.config['peak_left_extension'],
                                  right_extension=self.config['peak_right_extension'],
                                  min_channels=self.config['peak_min_chan'],
-                                 min_area=self.config['peak_min_area'],
-                                 max_duration=self.config['peak_max_duration'])
-        strax.sum_waveform(peaks, r, self.config['to_pe'])
+                                 min_area=self.config['peak_min_area'])
+        strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'])
 
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   min_height=self.config['split_min_height'],
@@ -265,7 +270,7 @@ class PeakBasics(strax.Plugin):
 
     def compute(self, peaks):
         p = peaks
-        r = np.zeros(len(p), self.dtype)
+        r = np.zeros_like(p, dtype=self.dtype)
         for q in 'time length dt area'.split():
             r[q] = p[q]
         r['endtime'] = p['time'] + p['dt'] * p['length']
@@ -278,7 +283,7 @@ class PeakBasics(strax.Plugin):
         area_top = (p['area_per_channel'][:, self.config['top_pmts']]
                     * self.config['to_pe'][self.config['top_pmts']].reshape(1, -1)).sum(axis=1)
         m = p['area'] > 0
-        r['area_fraction_top'] = np.nan * np.ones_like(m)
+        r['area_fraction_top'] = np.full_like(p, fill_value=np.nan, dtype=np.float32)
         r['area_fraction_top'][m] = area_top[m]/p['area'][m]
         return r
 
@@ -394,20 +399,19 @@ class NCompeting(strax.OverlapWindowPlugin):
         return 2 * self.config['nearby_window']
 
     def compute(self, peaks):
-        results = np.zeros_like(peaks, dtype=self.dtype)
         results = n_competing=self.find_n_competing(
             peaks,
             window=self.config['nearby_window'],
-            fraction=self.config['min_area_fraction'],
-            results=results)
-        return results
+            fraction=self.config['min_area_fraction'])
+        return np.array(results, dtype=self.dtype)
 
     @staticmethod
     @numba.jit(nopython=True, nogil=True, cache=True)
-    def find_n_competing(peaks, window, fraction, results):
+    def find_n_competing(peaks, window, fraction):
         n = len(peaks)
         t = peaks['time']
         a = peaks['area']
+        results = np.zeros(n, dtype=np.int32)
 
         left_i = 0
         right_i = 0
@@ -465,7 +469,7 @@ class Events(strax.OverlapWindowPlugin):
             & (peaks['n_competing'] <= self.config['trigger_max_competing'])]
 
         # Join nearby triggers
-        t0, t1 = self.find_peak_groups(
+        t0, t1 = strax.find_peak_groups(
             triggers,
             gap_threshold=le + re + 1,
             left_extension=le,
@@ -482,36 +486,6 @@ class Events(strax.OverlapWindowPlugin):
         return result
         # TODO: someday investigate if/why loopplugin doesn't give
         # anything if events do not contain peaks..
-
-    @staticmethod
-    def find_peak_groups(peaks, gap_threshold,
-                         left_extension=0, right_extension=0,
-                         max_duration=int(1e9)):
-        """Return boundaries of groups of peaks separated by gap_threshold,
-        extended left and right.
-        :param peaks: Peaks to group
-        :param gap_threshold: Minimum gap between peaks
-        :param left_extension: Extend groups by this many ns left
-        :param right_extension: " " right
-        :param max_duration: Maximum group duration. See strax.find_peaks for
-        what happens if this is exceeded
-        :return: time, endtime arrays of group boundaries
-        """
-        # Mock up a "hits" array so we can just use the existing peakfinder
-        # It doesn't work on raw peaks, since they might have different dts
-        # TODO: is there no cleaner way?
-        fake_hits = np.zeros(len(peaks), dtype=strax.hit_dtype)
-        fake_hits['dt'] = 1
-        fake_hits['area'] = 1
-        fake_hits['time'] = peaks['time']
-        # TODO: could this cause int overrun nonsense anywhere?
-        fake_hits['length'] = strax.endtime(peaks) - peaks['time']
-        fake_peaks = strax.find_peaks(
-            fake_hits, adc_to_pe=np.ones(1),
-            gap_threshold=gap_threshold,
-            left_extension=left_extension, right_extension=right_extension,
-            min_area=0, min_channels=1)
-        return fake_peaks['time'], strax.endtime(fake_peaks)
 
 
 @export

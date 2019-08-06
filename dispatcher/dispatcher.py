@@ -8,7 +8,7 @@ from subprocess import Popen, PIPE, TimeoutExpired
 import os
 import os.path as osp
 import shutil
-import zmq
+#import zmq
 import logging
 import logging.handlers
 import re
@@ -196,8 +196,25 @@ class Dispatcher(object):
             updates['data.raw.size'] = float(m.group('size').replace(b',',b'.'))
 
         updates['data.raw.location'] = os.path.join(root_raw_dir, doc['experiment'], '%05d' % doc['run_id'])
+        if doc['mode'] not in ['led', 'noise']:
+            updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
         self.db['runs'].update_one({'_id' : doc['_id']}, {'$set' : updates})
         return
+
+    def GetMeshVoltages(self, run_start, run_end):
+        coll = self.slow_database['caen_n1470']
+        pipeline = [
+                {'$match' : {'_id' : {'$gte' : ObjectId.from_datetime(run_start),
+                                      '$lte' : ObjectId.from_datetime(run_end)}}},
+                {'$group' : {'_id' : None,
+                             'cathode_mean' : {'$avg' : '$cathode_voltage'},
+                             'anode_mean' : {'$avg' : '$anode_voltage'},
+                             'cathode_dev' : {'$stdDevPop' : '$cathode_voltage'},
+                             'anode_dev' : {'$stdDevPop' : '$anode_voltage'}}},
+                {'$project' : {'_id' : 0, 'cathode_mean' : 1, 'anode_mean' : 1,
+                                'cathode_dev' : 1, 'anode_dev' : 1}},
+                ]
+        return coll.aggregate(pipeline)
 
     def DAQStatus(self):
         for row in self.db['status'].find({}).sort([('_id', -1)]).limit(1):

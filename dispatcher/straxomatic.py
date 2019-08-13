@@ -3,6 +3,7 @@ import signal
 import time
 from pymongo import MongoClient
 import os
+import shutil
 
 
 class SignalHandler:
@@ -19,7 +20,11 @@ def straxinate(run_id, targets, max_workers):
     try:
         straxbra.XebraContext().make(run_id, targets, max_workers=max_workers)
     except Exception as e:
-        return f'Strax threw a {type(e)}: {e}'
+        try:
+            straxbra.XebraContext().make(run_id, 'raw_records', max_workers=max_workers)
+        except Exception as ex:
+            return f'Strax threw a {type(ex)}: {ex}'
+        return ''
     return ''
 
 def main(collection):
@@ -38,6 +43,10 @@ def main(collection):
         msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']))
         updates = {'status' : 'idle', 'msg' : msg}
         collection.update_one({'_id' : doc['_id']}, {'$set' : updates})
+        if msg == '':
+            # at least raw records successfully produced, delete reader data
+            raw_path = '/data/storage/strax/raw/live'
+            shutil.rmtree(raw_path)
 
     collection.update_one({'subsystem' : 'straxinator'},
             {'$set' : {'active' : False, 'status' : 'offline', 'msg' : ''}})

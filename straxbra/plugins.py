@@ -15,19 +15,17 @@ adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
 @export
 @strax.takes_config(
     strax.Option('input_dir', type=str, track=False,
-                 default_by_run=utils.GetRawPath,
+                 default='/data/storage/strax/raw/live',
                  help='The directory with the data'),
     strax.Option('experiment', type=str, track=False, default='xebra',
                  help='Which experiment\'s data to load'),
     strax.Option('readout_threads', type=int, track=False,
                  default_by_run=utils.GetReadoutThreads,
                  help='How many readout threads were used'),
-    strax.Option('safe_break', default=1000, track=False,
+    strax.Option('safe_break', default=1000,
                  help='Time in ns between pulse starts indicating a safe break'),
-    strax.Option('do_breaks', default=True, track=False,
+    strax.Option('do_breaks', default=True,
                  help='Do the pulse breaking'),
-    strax.Option('erase_reader', default=False, track=False,
-                 help='Delete reader data after processing'),
     strax.Option('run_start', type=int, track=False,
                  default_by_run=utils.GetRunStart,
                  help='Start time of the run in ns'),
@@ -98,9 +96,6 @@ class DAQReader(strax.ParallelSourcePlugin):
                     tolerant=True)
             else:
                 result = records
-        if self.config['erase_reader']:
-            shutil.rmtree(folder)
-            #utils.RemoveRaw(self.config['input_dir'])
         result['time'] += self.config['run_start']
         return result
 
@@ -182,6 +177,8 @@ class Records(strax.Plugin):
                      help='Mininmum number of channels to form a peak'),
         strax.Option('peak_min_area', default=2,
                      help='Minimum area to form a peak'),
+        strax.Option('peak_max_duration', default=50e3,
+                     help='Maximum peak duration'),
         strax.Option('split_min_height', default=25,
                      help='Minimum prominence height to split peaks'),
         strax.Option('split_min_ratio', default=4,
@@ -215,9 +212,10 @@ class Peaks(strax.Plugin):
                                  left_extension=self.config['peak_left_extension'],
                                  right_extension=self.config['peak_right_extension'],
                                  min_channels=self.config['peak_min_chan'],
-                                 min_area=self.config['peak_min_area'])
+                                 min_area=self.config['peak_min_area'],
+                                 max_duration=self.config['peak_max_duration'])
         strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'])
-
+        peaks = peaks[peaks['dt'] > 0]  # removes strange edge case
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   min_height=self.config['split_min_height'],
                                   min_ratio=self.config['split_min_ratio'])

@@ -7,13 +7,13 @@ from functools import partial
 from subprocess import Popen, PIPE, TimeoutExpired
 import os
 import os.path as osp
-import shutil
 #import zmq
 import logging
 import logging.handlers
 import re
 from blosc import decompress
 import numpy as np
+from strax import record_dtype
 
 
 class Scheduler(threading.Thread):
@@ -79,9 +79,10 @@ class SignalHandler(object):
 
 
 class Dispatcher(object):
-    def __init__(self, daq_db, logger, raw_dir):
+    def __init__(self, client, logger, raw_dir):
         self.logger = logger
-        self.db = daq_db
+        self.db = client['xebra_daq']
+        self.slow_db = client['xebra_data']
         self.root_raw_dir = raw_dir
         self.sh = SignalHandler()
         self.schedule = Scheduler(self.sh)
@@ -93,35 +94,23 @@ class Dispatcher(object):
         self.stop_id = None
         self.current_run_id = None
         self.armed_for_id = None
-        msg = ''
-        try:
-            self.Spatch()
-        except Exception as e:
-            msg = 'Caught a %s: %s' % (type(e), e)
-        else:
-            msg = ''
-        finally:
-            self.close(msg)
-            self.logger.info('Closing with message: %s' % msg)
+        self.default_strax_targets = 'event_positions'
 
     def __del__(self):
         self.close()
         return
 
     def close(self, msg=''):
+        self.sh.run = False
         self.schedule.join()
         self.SetStatus(active=False, status='offline', msg=msg)
+        self.logger.info(msg)
 
-    def GetNextRunId(self):
-        abs_run_number = len(os.listdir(os.path.join(root_raw_dir, 'unsorted')))
-        return '%05d' % (abs_run_number) # counts from 0 so no +1
-
-    def InsertNewRundoc(self, mode, user, run_id_abs, config_override, comment):
+    def InsertNewRundoc(self, mode, user, config_override, comment):
         self.logger.info('Generating rundoc')
         rundoc = {
                 'mode' : mode,
                 'user' : user,
-                'run_id_unsrt' : int(run_id_abs),
                 'config' : {},
                 'start' : datetime.datetime.utcnow(),
                 'comment' : comment,
@@ -133,76 +122,70 @@ class Dispatcher(object):
             run_id = row['run_id']+1
         rundoc['run_id'] = run_id
         run_id = f'{run_id:05d}'
+        self.logger.debug('Assigned run id %s' % run_id)
         if 'includes' in cfg_doc:
+            self.logger.debug('Adding config includes')
             for sub_cfg in cfg_doc['includes']:
                 rundoc['config'].update(self.db['options'].find_one({'name' : sub_cfg}))
         rundoc['config'].update(cfg_doc)
         if config_override:
             rundoc['config'].update(config_override)
         del rundoc['config']['_id']
-        rundoc['data'] = {'raw' :
-                {'location': osp.join(rundoc['config']['strax_output_path'],run_id_abs)}}
+        self.logger.debug('Inserting rundoc')
         self.db['runs'].insert_one(rundoc)
-        os.chdir(os.path.join(root_raw_dir, rundoc['experiment']))
-        os.symlink(f'../unsorted/{run_id_abs}', run_id)
-        # TODO this line fails???
-        #unsrt_dir = raw_root_dir + '/unsorted'
         self.logger.info('Rundoc inserted, run id %s' % run_id)
         return run_id
 
     def EndRun(self, run_id):
-        self.logger.debug('Ending run %s' % run_id)
-        doc = self.db['runs'].find_one({'run_id_unsrt' : int(run_id)})
+        self.logger.debug('Ending active run')
+        doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
         if doc is None:
             self.logger.error('Invalid run error')
             self.SetStatus(msg='This error should not have happened, what did you do?')
             return
         updates = {}
-        raw_dir = doc['data']['raw']['location']
+        raw_dir = '/data/storage/strax/raw/live'
         threads = doc['config']['processing_threads']['charon_reader_0']
+        self.logger.debug('Waiting for daq to stop')
         for _ in range(20):
             # it can take a bit for the daq to actually stop
             time.sleep(1)
             if 'THE_END' in os.listdir(raw_dir) and \
                     len(os.listdir(osp.join(raw_dir, 'THE_END'))) >= threads:
                 break
+        self.logger.debug('Daq stopped')
         first_chunk = os.listdir(osp.join(raw_dir, '000000'))[0]
         with open(osp.join(raw_dir, '000000', first_chunk), 'rb') as f:
-            rec = np.frombuffer(blosc.decompress(f.read()), dtype=record_dtype())[0]
+            rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[0]
             run_start = rec['time']
         # cleanup unnecessary folders
         for fn in os.listdir(raw_dir):
             if 'temp' in fn:
                 shutil.rmtree(osp.join(raw_dir, fn))
-        num_chunks = len(os.listdir(raw_dir))-1
-        for chunk in list(range(num_chunks))[::-1]:
-            if len(os.listdir(osp.join(raw_dir, f'{chunk:06d}'))) < threads:
+        chunks = sorted(os.listdir(raw_dir))
+        for chunk in chunks[::-1]:
+            if len(os.listdir(osp.join(raw_dir, chunk))) < threads:
                 continue  # incomplete folder
-            last_chunk = os.listdir(osp.join(raw_dir, f'{chunk:06d}'))[0]
-            with open(osp.join(raw_dir, f'{chunk:06d}', last_chunk), 'rb') as f:
-                rec = np.frombuffer(blosc.decompress(f.read()), dtype=record_dtype())[-1]
-                duration = rec['time'] - run_start
-                updates['end'] = doc['start'] + datetime.timedelta(seconds=duration/1e9)
+            last_chunk = os.listdir(osp.join(raw_dir, chunk))[0]
+            try:
+                with open(osp.join(raw_dir, chunk, last_chunk), 'rb') as f:
+                    rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[-1]
+                    duration = rec['time'] - run_start
+                    updates['end'] = doc['start'] + datetime.timedelta(seconds=duration/1e9)
+            except Exception:
+                continue  # mark for removal?
+            break
 
-        # figure out how much data we just made
-        proc = Popen('du -chBM %s' % raw_dir, shell=True, stdout=PIPE, stderr=PIPE)
-        try:
-            out, err = proc.communicate(timeout=10)
-        except TimeoutExpired:
-            proc.kill()
-            out, err = proc.communicate()
-        m = re.search(b'(?P<size>[1-9][0-9]*(?:[,\\.][0-9]*[1-9])?)M\ttotal', out)
-        if m:
-            updates['data.raw.size'] = float(m.group('size').replace(b',',b'.'))
-
-        updates['data.raw.location'] = os.path.join(root_raw_dir, doc['experiment'], '%05d' % doc['run_id'])
         if doc['mode'] not in ['led', 'noise']:
+            self.logger.debug('Getting SC data')
             updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
+        self.logger.debug('Updating rundoc')
         self.db['runs'].update_one({'_id' : doc['_id']}, {'$set' : updates})
+        self.logger.debug('Run ended')
         return
 
     def GetMeshVoltages(self, run_start, run_end):
-        coll = self.slow_database['caen_n1470']
+        coll = self.slow_db['caen_n1470']
         pipeline = [
                 {'$match' : {'_id' : {'$gte' : ObjectId.from_datetime(run_start),
                                       '$lte' : ObjectId.from_datetime(run_end)}}},
@@ -233,45 +216,44 @@ class Dispatcher(object):
         return
 
     def Arm(self, doc):
-        self.logger.info('Arming')  # TODO fix vv
-        cmd_doc = {'host' : 'charon_reader_0', 'acknowledged' : [],
-                'command' : '', 'user' : 'web'}
+        self.logger.info('Arming for %s' % doc['mode'])
+        cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
+                'command' : '', 'user' : doc['user']}
         experiment = self.db['options'].find_one({'name' : doc['mode']})['detector']
-        run_id = self.GetNextRunId()
         cmd_doc['command'] = 'arm'
         cmd_doc['options_override'] = doc['config_override']
-        cmd_doc['run_identifier'] = run_id
-        self.armed_for_id = run_id
+        cmd_doc['run_identifier'] = 'live'
         cmd_doc['mode'] = doc['mode']
         self.db['options'].update_one({'name' : doc['mode']},
-                            {'$set' : {'run_identifier' : run_id}})
+                            {'$set' : {'run_identifier' : 'live'}})
+        self.logger.debug('Inserting command doc')
         self.db['control'].insert_one(cmd_doc)
         self.SetStatus(msg='Arming for %s' % cmd_doc['mode'], goal='none')
+        self.logger.debug('Done arming')
         return
 
     def Start(self, doc):
-        self.logger.info('Starting daq')  # TODO fix vv
-        cmd_doc = {'host' : 'charon_reader_0', 'acknowledged' : [],
-                'command' : '', 'user' : 'web'}
+        self.logger.info('Starting daq')
+        cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
+                'command' : '', 'user' : doc['user']}
         cmd_doc['command'] = 'start'
         experiment = self.db['options'].find_one({'name' : doc['mode']})['detector']
-        if self.armed_for_id is not None:
-            run_id = self.armed_for_id
-            self.armed_for_id = None
-        else:
-            run_id = self.GetNextRunId()
-        self.logger.debug('Run id: %s' % run_id)
-        cmd_doc['user'] = doc['user']
-        cmd_doc['run_identifier'] = run_id
-        self.current_run_id = run_id
+        cmd_doc['run_identifier'] = 'live'
+        self.logger.debug('Issuing command')
         self.db['control'].insert_one(cmd_doc)
-        run_id_rel = self.InsertNewRundoc(mode=doc['mode'], user=doc['user'], run_id_abs=run_id, config_override=doc['config_override'], comment=doc['comment'])
-        self.SetStatus(msg='Run %s is live (%s)' % (run_id_rel, doc['mode']), run_id=run_id, goal='none', comment='')
-        cmd_doc['command'] = 'stop'
         if '_id' in cmd_doc:
             del cmd_doc['_id']
+        self.logger.debug('Scheduling stop')
+        cmd_doc['command'] = 'stop'
         self.stop_id = self.schedule.Schedule(delay=doc['duration'], func = partial(
             self.Stop, doc))
+        self.logger.debug('Adding rundoc')
+        run_id_rel = self.InsertNewRundoc(mode=doc['mode'], user=doc['user'],
+                config_override=doc['config_override'],
+                comment=doc['comment'])
+        self.current_run_id = run_id_rel
+        self.SetStatus(msg='Run %s is live (%s)' % (run_id_rel, doc['mode']),
+                run_id=run_id_rel, goal='none', comment='')
         if experiment == 'xebra':  # FIXME
             self.logger.debug('Notifying strax-o-matic')
             if doc['mode'] not in ['led','noise']:
@@ -285,19 +267,20 @@ class Dispatcher(object):
         return
 
     def Stop(self, doc):
-        self.logger.info('Stopping daq')  # TODO fix vv
-        cmd_doc = {'host' : 'charon_reader_0', 'acknowledged' : [],
-                'command' : '', 'user' : 'web'}
+        self.logger.info('Stopping daq')
+        cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
+                'command' : '', 'user' : doc['user']}
         cmd_doc['command'] = 'stop'
         cmd_doc['user'] = doc['user']
         self.db['control'].insert_one(cmd_doc)
         if self.stop_id is not None:
+            self.logger.debug('Unscheduling stop command')
             self.schedule.Unschedule(self.stop_id)
             self.stop_id = None
         self.SetStatus(status='online', goal='none', msg='')
-        if self.current_run_id is not None:
-            self.EndRun(run_id=self.current_run_id)
-            self.current_run_id = None
+        self.logger.debug('Ending run')
+        self.EndRun(run_id=self.current_run_id)
+        self.current_run_id = None
         return
 
     def LED(self, doc):
@@ -309,6 +292,7 @@ class Dispatcher(object):
         doc['mode'] = 'led'
         self.Arm(doc)
         self.SetStatus(msg='Arming for LED calibration', goal='none')
+        self.logger.debug('Waiting for daq to arm')
         status = self.DAQStatus()
         while status != 'armed':
             time.sleep(1)
@@ -317,6 +301,7 @@ class Dispatcher(object):
                 self.SendToLed('stop')
                 return
             status = self.DAQStatus()
+        self.logger.debug('Daq armed')
         self.SendToLed('start')
         doc['duration'] = led_cal_duration
         self.Start(doc)
@@ -372,17 +357,16 @@ if __name__ == '__main__':
             when='midnight', delay=True)
     h.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
     logger.addHandler(h)
+    logger.setLevel(logging.DEBUG)
     with MongoClient(os.environ['MONGO_DAQ_URI']) as client:
         raw_dir = '/data/storage/strax/raw'
         try:
             experiment = os.environ['EXPERIMENT_NAME']
-            d = Dispatcher(client[f'{experiment}_daq'], logger, raw_dir)
+            d = Dispatcher(client, logger, raw_dir)
+            d.Spatch()
         except Exception as e:
-            logger.error(f'Caught a {type(e)}: {e}')
-            try:
-                d.sh.run = False
-            except:
-                pass
+            msg = 'Caught a %s: %s' % (type(e), e)
         else:
-            pass
-
+            msg = ''
+        finally:
+            d.close(msg)

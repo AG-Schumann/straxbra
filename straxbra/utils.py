@@ -64,22 +64,6 @@ def GetGains(run_id):
 def GetELifetime(run_id):
     return 10e3 # 10 us
 
-def UpdateGains(bin_centers, histos, fit_results, fit_uncertainties):
-    doc = {}
-    db['pmt_gains'].insert_one({
-            'bin_centers' : bin_centers.tolist(),
-            'histograms' : histos.tolist(),
-            'gains' : fit_results[:,3].tolist(),
-            'fit_results' : fit_results.tolist(),
-            'fit_uncertainties' : fit_uncertainties.tolist(),
-    })
-
-def GetLastGains():
-    doc = list(db['pmt_gains'].find({}).sort([('_id', -1)]).limit(1))[0]
-    if 'fit_results' in doc:
-        return doc['fit_results']
-    return None
-
 def GetRunStart(run_id):
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:

@@ -129,84 +129,6 @@ class DAQReader(strax.ParallelSourcePlugin):
         return records
 
 
-@strax.takes_config(
-        strax.Option('left', track=False, default=50, type=int,
-                     help='Left edge of integration (inclusive)'),
-        strax.Option('right', track=False, default=70, type=int,
-                     help='Right edge of integration (exlusive)'),
-        strax.Option('channels', type=list, default=list(range(8)),
-                     help='Which channels to do'),
-)
-class LEDcal(strax.Plugin):
-    """
-    Does LED calibration
-    """
-    __version__ = '0.0.1'
-    depends_on = ('raw_records',)
-    provides = 'led_cal'
-    save_when=strax.SaveWhen.NEVER
-
-    def compute(self, raw_records):
-        bins = np.linspace(-50, 900, 100)
-        bin_centers = 0.5*(bins[1:] + bins[:-1])
-        popts = []
-        pconvs = []
-        histograms = []
-        adc_to_pe = []
-        gains = []
-        last_results = utils.GetLastGains()
-        if last_results is None:
-            last_results = [[
-                    10, # 0pe mean
-                    15, # 0pe sigma
-                    0, # 0pe counts
-                    200, # 1pe mean
-                    150, # 1pe sigma
-                    0, # 1pe counts
-                    400, # 2pe mean
-                    400, # 2pe sigma
-                    0, # 2pe counts
-                ] for _ in range(len(self.config['channels']))]
-        for ch in self.config['channels']:
-            m = raw_records['channel'] == ch
-            left = self.config['left']
-            right = self.config['right']
-            n, _ = np.histogram(raw_records['data'][m,left:right].sum(axis=1),
-                                bins=bins)
-            sigma = np.maximum(np.sqrt(n), np.ones_like(n))
-            cts = n.sum()
-            bounds = np.array([
-                [-50, last_results[ch][0], 50],  # 0pe mean
-                [1, last_results[ch][1], 30],    # 0pe sigma
-                [cts, cts*10, cts*100],   # 0pe counts
-                [50, last_results[ch][3], 300],  # spe mean
-                [10, last_results[ch][4], 400],  # spe sigma
-                [cts/100, cts/10, cts],   # spe counts
-                [200, last_results[ch][6], 1000],  # dpe mean
-                [10, last_results[ch][7], 1000], # dpe sigma
-                [0, cts/1e4, cts/1e3],     # dpe counts
-            ])
-            popt, pconv = curve_fit(self.fit_func, bin_centers, n, p0=bounds[:,1],
-                    sigma=sigma, bounds=bounds[:,[0,2]].T)
-            histos.append(n.tolist())
-            fit_results.append(popt.tolist())
-            fit_uncert.append(np.sqrt(np.diag(pconv)).tolist())
-        histos = np.array(histos)
-        fit_results = np.array(fit_results)
-        fit_uncert = np.array(fit_results)
-
-        utils.update_gains(bin_centers, histos, fit_results, fit_uncert)
-
-        return None
-
-    @staticmethod
-    def fit_func(x, *args):
-        ret = 0
-        for i in range(0, len(args), 3):
-            ret += utils.gaus(x, *args[i:i+3])
-        return ret
-
-
 @export
 @strax.takes_config(
         strax.Option('to_pe', track=False,
@@ -244,13 +166,13 @@ class Records(strax.Plugin):
 
 @export
 @strax.takes_config(
-        strax.Option('hit_threshold', type=int, track=False, default=30,
+        strax.Option('hit_threshold', type=int, track=True, default=30,
                      help="Hitfinder threshold"),
-        strax.Option('peak_gap_threshold', type=int, track=False, default=300,
+        strax.Option('peak_gap_threshold', type=int, track=True, default=300,
                      help='Number of ns without hits to start a new peak'),
-        strax.Option('peak_left_extension', type=int, track=False, default=20,
+        strax.Option('peak_left_extension', type=int, track=True, default=20,
                      help='Extend peaks by this many ns to the left'),
-        strax.Option('peak_right_extension', type=int, track=False, default=150,
+        strax.Option('peak_right_extension', type=int, track=True, default=150,
                      help='Extend peaks by this many ns to the right'),
         strax.Option('peak_min_chan', type=int, track=False, default=1,
                      help='Mininmum number of channels to form a peak'),
@@ -372,7 +294,7 @@ class PeakBasics(strax.Plugin):
     strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
-                 help='Skip reconstruction if area (PE) is less than this',
+                 help='Skip reconstruction if area_top (PE) is less than this',
                  default=100)
 )
 class PeakPositions(strax.Plugin):
@@ -431,11 +353,12 @@ class PeakPositions(strax.Plugin):
             for i in range(0, len(p)):
                 r[i] = self.reconstructed_position(p[i])
         else:
-            return dict(x=np.zeros(0, dtype=np.float32),
-                        y=np.zeros(0, dtype=np.float32))
-        if not r.flags['C_CONTIGUOUS']:
-            r = r.copy(order='C')
-        return r
+            #return dict(x=np.zeros(0, dtype=np.float32),
+            #            y=np.zeros(0, dtype=np.float32))
+            return np.zeros(0, dtype=self.dtype)
+        #if not r.flags['C_CONTIGUOUS']:
+        #    r = r.copy(order='C')
+        return results
 
     # Function to return non-negative value corresponding to (radial position - radius TPC) if inside TPC,
     # used for constraints
@@ -502,24 +425,25 @@ class PeakClassification(strax.Plugin):
     strax.Option('min_area_fraction', default=0.5,
                  help='The area of competing peaks must be at least '
                       'this fraction of that of the considered peak'),
-    strax.Option('nearby_window', default=int(1e5),
+    strax.Option('nearby_window', default=int(5e3),
                  help='Peaks starting within this time window (on either side)'
                       'in ns count as nearby.'),
 )
 class NCompeting(strax.OverlapWindowPlugin):
     depends_on = ('peak_basics',)
     dtype = [
-        ('n_competing', np.int32,
-            'Number of nearby larger or slightly smaller peaks')]
+        (('Number of nearby larger or slightly smaller peaks',
+            'n_competing'), np.int32),]
 
     def get_window_size(self):
         return 2 * self.config['nearby_window']
 
     def compute(self, peaks):
-        return dict(n_competing=self.find_n_competing(
+        results = n_competing=self.find_n_competing(
             peaks,
             window=self.config['nearby_window'],
-            fraction=self.config['min_area_fraction']))
+            fraction=self.config['min_area_fraction'])
+        return dict(n_competing=results)
 
     @staticmethod
     @numba.jit(nopython=True, nogil=True, cache=True)
@@ -549,13 +473,13 @@ class NCompeting(strax.OverlapWindowPlugin):
     strax.Option('trigger_max_competing', default=7,
                  help='Peaks must have FEWER nearby larger or slightly smaller'
                       ' peaks to cause events'),
-    strax.Option('left_event_extension', default=int(50e6),
+    strax.Option('left_event_extension', default=int(50e3),
                  help='Extend events this many ns to the left from each '
                       'triggering peak'),
-    strax.Option('right_event_extension', default=int(50e6),
+    strax.Option('right_event_extension', default=int(50e3),
                  help='Extend events this many ns to the right from each '
                       'triggering peak'),
-    strax.Option('max_event_duration', default=int(100e6),
+    strax.Option('max_event_duration', default=int(100e3),
                  help='Events longer than this are forcefully ended, '
                       'triggers in the truncated part are lost!'),
 )
@@ -563,10 +487,14 @@ class Events(strax.OverlapWindowPlugin):
     depends_on = ['peak_basics', 'n_competing']
     data_kind = 'events'
     dtype = [
-        ('event_number', np.int64, 'Event number in this dataset'),
-        ('time', np.int64, 'Event start time in ns since the unix epoch'),
-        ('endtime', np.int64, 'Event end time in ns since the unix epoch')]
+        (('Event number in this dataset',
+            'event_number'), np.int64),
+        (('Event start time in ns since the unix epoch',
+            'time'), np.int64),
+        (('Event end time in ns since the unix epoch',
+            'endtime'), np.int64)]
     events_seen = 0
+    rechunk_on_save = False
 
     def get_window_size(self):
         return (2 * self.config['left_event_extension'] +
@@ -588,7 +516,7 @@ class Events(strax.OverlapWindowPlugin):
             right_extension=re,
             max_duration=self.config['max_event_duration'])
 
-        result = np.zeros(len(t0), self.dtype)
+        result = np.zeros_like(t0, dtype=self.dtype)
         result['time'] = t0
         result['endtime'] = t1
         result['event_number'] = np.arange(len(result)) + self.events_seen
@@ -618,15 +546,15 @@ class Events(strax.OverlapWindowPlugin):
         # TODO: is there no cleaner way?
         fake_hits = np.zeros(len(peaks), dtype=strax.hit_dtype)
         fake_hits['dt'] = 1
+        fake_hits['area'] = 1
         fake_hits['time'] = peaks['time']
         # TODO: could this cause int overrun nonsense anywhere?
-        fake_hits['length'] = peaks['endtime'] - peaks['time']
+        fake_hits['length'] = strax.endtime(peaks) - peaks['time']
         fake_peaks = strax.find_peaks(
-            fake_hits, adc_to_pe=np.zeros(1),
+            fake_hits, adc_to_pe=np.ones(1),
             gap_threshold=gap_threshold,
             left_extension=left_extension, right_extension=right_extension,
-            min_area=0,
-            max_duration=max_duration)
+            min_area=0, min_channels=1)
         return fake_peaks['time'], strax.endtime(fake_peaks)
 
 

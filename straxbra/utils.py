@@ -25,6 +25,7 @@ def gaus(x, mean, sigma, amp):
 
 def GetRawPath(run_id):
     doc = _GetRundoc(run_id)
+    return '/data/storage/strax/raw/live'
     if doc is not None:
         try:
             return doc['data']['raw']['location']

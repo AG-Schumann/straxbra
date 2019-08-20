@@ -212,7 +212,7 @@ class Peaks(strax.Plugin):
                                  min_area=self.config['peak_min_area'],
                                  max_duration=self.config['peak_max_duration'])
         strax.sum_waveform(peaks, r, self.config['to_pe'])
-
+        peaks = peaks[peaks['dt'] > 0]
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   min_height=self.config['split_min_height'],
                                   min_ratio=self.config['split_min_ratio'])

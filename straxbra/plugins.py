@@ -2,8 +2,6 @@ import os
 import shutil
 
 import numpy as np
-from numpy import exp
-import math
 from scipy.optimize import minimize
 
 import numba
@@ -333,13 +331,13 @@ class PeakPositions(strax.Plugin):
         # Fit parameters LRFs
         # MC driven (R_PTFE = 95 %, T_meshes = 89.770509 %, lambda_LXe = 100 cm); 
         # To be iteratively determined from data later
-        self.fitparameters = np.array([np.array([ 0.58534179, 29.89341846, -0.3275816, 4.14715081, 2.61234684]), 
-                                  np.array([ 0.63546614, 28.49525342, -0.19651583, 3.76011493, 2.68672152]), 
-                                  np.array([ 0.58840586, 30.39015033, -0.38248759, 4.27642323, 2.56774842]), 
-                                  np.array([ 0.59111988, 31.38350968, -0.5760228, 4.64122418, 2.51311592]), 
-                                  np.array([ 0.63771524, 28.90663204, -0.26194541, 3.90052756, 2.66510948]), 
-                                  np.array([ 0.59030322, 30.55082687, -0.46183924, 4.39769959, 2.55446814]), 
-                                  np.array([ 0.53114467, 39.20861977, -17.93187819, 20.60397171, 2.27692367])])
+        self.fitparameters = np.array([[ 0.58534179, 29.89341846, -0.3275816, 4.14715081, 2.61234684], 
+                          [ 0.63546614, 28.49525342, -0.19651583, 3.76011493, 2.68672152], 
+                          [ 0.58840586, 30.39015033, -0.38248759, 4.27642323, 2.56774842], 
+                          [ 0.59111988, 31.38350968, -0.5760228, 4.64122418, 2.51311592], 
+                          [ 0.63771524, 28.90663204, -0.26194541, 3.90052756, 2.66510948], 
+                          [ 0.59030322, 30.55082687, -0.46183924, 4.39769959, 2.55446814], 
+                          [ 0.53114467, 39.20861977, -17.93187819, 20.60397171, 2.27692367]])
         self.fitparameters = self.fitparameters[self.pmt_mask]
         
     def compute(self, peaks):
@@ -365,13 +363,13 @@ class PeakPositions(strax.Plugin):
     @staticmethod
     def insidevolume(inputs):
         p_TPC_radius = 35
-        return (p_TPC_radius - np.sqrt(inputs[0]**2 + inputs[1]**2))
+        return (p_TPC_radius - np.hypot(inputs[0], inputs[1]))
     
     # Radial LRF model
     # from: Position Reconstruction in a Dual Phase Xenon Scintillation Detector (https://arxiv.org/abs/1112.1481)
     @staticmethod
     def eta(r, A, r0, a, b, alpha):
-        return A * exp( - a * (r/r0) / (1 + (r/r0) ** (1 - alpha)) - b / (1 + (r/r0) ** (- alpha)))   
+        return A * np.exp( - a * (r/r0) / (1 + (r/r0) ** (1 - alpha)) - b / (1 + (r/r0) ** (- alpha)))   
 
     ## Position dependent LRF values individual PMTs from model
     def LRF_PMTs(self, x, y):

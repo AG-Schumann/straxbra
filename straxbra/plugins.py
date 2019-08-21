@@ -315,8 +315,7 @@ class PeakPositions(strax.Plugin):
              ('y', np.float32,
               'Reconstructed S2 Y position (mm), uncorrected')]
     depends_on = ('peaks',)
-
-    parallel = False
+    parallel = True
 
     def setup(self):
         # PMT mask
@@ -324,9 +323,9 @@ class PeakPositions(strax.Plugin):
         self.pmt_mask[self.config['top_pmts']] = self.config['to_pe'][self.config['top_pmts']] > 0
         # PMT positions in mm in cartesian coordinates
         pmt_x = np.array([-14.,-28.,-14.,14.,28.,14.,0.]) # x-positions PMTs
-        pmt_x = pmt_x[self.pmt_mask]
+        pmt_x = pmt_x[self.pmt_mask[self.config['top_pmts']]]
         pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])    # y-positions PMTs
-        pmt_y = pmt_y[self.pmt_mask]
+        pmt_y = pmt_y[self.pmt_mask[self.config['top_pmts']]]
         self.pmt_positions = np.column_stack((pmt_x, pmt_y))
         # Fit parameters LRFs
         # MC driven (R_PTFE = 95 %, T_meshes = 89.770509 %, lambda_LXe = 100 cm); 
@@ -338,24 +337,20 @@ class PeakPositions(strax.Plugin):
                           [ 0.63771524, 28.90663204, -0.26194541, 3.90052756, 2.66510948], 
                           [ 0.59030322, 30.55082687, -0.46183924, 4.39769959, 2.55446814], 
                           [ 0.53114467, 39.20861977, -17.93187819, 20.60397171, 2.27692367]])
-        self.fitparameters = self.fitparameters[self.pmt_mask]
+        self.fitparameters = self.fitparameters[self.pmt_mask[self.config['top_pmts']]]
         
     def compute(self, peaks):
         # Keep large peaks only
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
         p = peaks['area_per_channel'][peak_mask, :]
         p = p[:, self.pmt_mask]
-        r = np.full_like(p, np.nan, dtype=self.dtype)
+        results = np.full_like(peaks, np.nan, dtype=self.dtype)
 
-        if len(p) >= 0:
-            for i in range(0, len(p)):
-                r[i] = self.reconstructed_position(p[i])
-        else:
-            #return dict(x=np.zeros(0, dtype=np.float32),
-            #            y=np.zeros(0, dtype=np.float32))
-            return np.zeros(0, dtype=self.dtype)
-        #if not r.flags['C_CONTIGUOUS']:
-        #    r = r.copy(order='C')
+        for p_i,p in enumerate(peaks):
+            apc = p['area_per_channel'][self.pmt_mask]
+            if apc.sum() < self.config['min_reconstruction_area']:
+                continue
+            results[p_i] = tuple(self.reconstructed_position(apc))
         return results
 
     # Function to return non-negative value corresponding to (radial position - radius TPC) if inside TPC,

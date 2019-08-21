@@ -315,8 +315,7 @@ class PeakPositions(strax.Plugin):
              ('y', np.float32,
               'Reconstructed S2 Y position (mm), uncorrected')]
     depends_on = ('peaks',)
-
-    parallel = False
+    parallel = True
 
     def setup(self):
         # PMT mask
@@ -345,17 +344,13 @@ class PeakPositions(strax.Plugin):
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
         p = peaks['area_per_channel'][peak_mask, :]
         p = p[:, self.pmt_mask]
-        r = np.full_like(p, np.nan, dtype=self.dtype)
+        results = np.full_like(peaks, np.nan, dtype=self.dtype)
 
-        if len(p) >= 0:
-            for i in range(0, len(p)):
-                r[i] = self.reconstructed_position(p[i])
-        else:
-            #return dict(x=np.zeros(0, dtype=np.float32),
-            #            y=np.zeros(0, dtype=np.float32))
-            return np.zeros(0, dtype=self.dtype)
-        #if not r.flags['C_CONTIGUOUS']:
-        #    r = r.copy(order='C')
+        for p_i,p in enumerate(peaks):
+            apc = p['area_per_channel'][self.pmt_mask]
+            if apc.sum() < self.config['min_reconstruction_area']:
+                continue
+            results[p_i] = tuple(self.reconstructed_position(apc))
         return results
 
     # Function to return non-negative value corresponding to (radial position - radius TPC) if inside TPC,

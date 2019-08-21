@@ -324,9 +324,9 @@ class PeakPositions(strax.Plugin):
         self.pmt_mask[self.config['top_pmts']] = self.config['to_pe'][self.config['top_pmts']] > 0
         # PMT positions in mm in cartesian coordinates
         pmt_x = np.array([-14.,-28.,-14.,14.,28.,14.,0.]) # x-positions PMTs
-        pmt_x = pmt_x[self.pmt_mask]
+        pmt_x = pmt_x[self.pmt_mask[self.config['top_pmts']]]
         pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])    # y-positions PMTs
-        pmt_y = pmt_y[self.pmt_mask]
+        pmt_y = pmt_y[self.pmt_mask[self.config['top_pmts']]]
         self.pmt_positions = np.column_stack((pmt_x, pmt_y))
         # Fit parameters LRFs
         # MC driven (R_PTFE = 95 %, T_meshes = 89.770509 %, lambda_LXe = 100 cm); 
@@ -338,7 +338,7 @@ class PeakPositions(strax.Plugin):
                           [ 0.63771524, 28.90663204, -0.26194541, 3.90052756, 2.66510948], 
                           [ 0.59030322, 30.55082687, -0.46183924, 4.39769959, 2.55446814], 
                           [ 0.53114467, 39.20861977, -17.93187819, 20.60397171, 2.27692367]])
-        self.fitparameters = self.fitparameters[self.pmt_mask]
+        self.fitparameters = self.fitparameters[self.pmt_mask[self.config['top_pmts']]]
         
     def compute(self, peaks):
         # Keep large peaks only

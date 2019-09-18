@@ -2,6 +2,8 @@ import os
 import shutil
 
 import numpy as np
+from scipy.optimize import minimize
+
 import numba
 
 from . import utils
@@ -297,54 +299,90 @@ class PeakBasics(strax.Plugin):
                  default=100)
 )
 class PeakPositions(strax.Plugin):
-    """
-    I actually wrote this
+    '''
+    Position Reconstruction for XeBRA
+    
     Version 0.0.1: weighted sum
-    Version 0.0.2: hopefully LRF or better
-    """
-    __version__ = "0.0.1"
+    Version 0.0.2: LRF
+    
+    Status: July 2019, Version 0.0.2
+    
+    Position reconstruction for XeBRA following the position reconstruction algorithm of Mercury 
+    (employed in the LUX experiment, originally developed for the ZEPLIN-III dark matter experiment) 
+    with light response functions (see https://arxiv.org/abs/1710.02752v2 and 
+    https://arxiv.org/abs/1112.1481 ).
+    '''
+    __version__ = "0.0.2"
     dtype = [('x', np.float32,
-              'Reconstructed S2 X position (cm), uncorrected'),
+              'Reconstructed S2 X position (mm), uncorrected'),
              ('y', np.float32,
-              'Reconstructed S2 Y position (cm), uncorrected')]
+              'Reconstructed S2 Y position (mm), uncorrected')]
     depends_on = ('peaks',)
-
-    parallel = False
+    parallel = True
 
     def setup(self):
-
+        # PMT mask
         self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
         self.pmt_mask[self.config['top_pmts']] = self.config['to_pe'][self.config['top_pmts']] > 0
-        pmt_x = np.array([-14.,-28,-14.,14.,28.,14.,0.])
-        pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])
+        # PMT positions in mm in cartesian coordinates
+        pmt_x = np.array([-14.,-28.,-14.,14.,28.,14.,0.]) # x-positions PMTs
+        pmt_x = pmt_x[self.pmt_mask[self.config['top_pmts']]]
+        pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])    # y-positions PMTs
+        pmt_y = pmt_y[self.pmt_mask[self.config['top_pmts']]]
         self.pmt_positions = np.column_stack((pmt_x, pmt_y))
-
+        # Fit parameters LRFs
+        # MC driven (R_PTFE = 95 %, T_meshes = 89.770509 %, lambda_LXe = 100 cm); 
+        # To be iteratively determined from data later
+        self.fitparameters = np.array([[ 0.58534179, 29.89341846, -0.3275816, 4.14715081, 2.61234684], 
+                          [ 0.63546614, 28.49525342, -0.19651583, 3.76011493, 2.68672152], 
+                          [ 0.58840586, 30.39015033, -0.38248759, 4.27642323, 2.56774842], 
+                          [ 0.59111988, 31.38350968, -0.5760228, 4.64122418, 2.51311592], 
+                          [ 0.63771524, 28.90663204, -0.26194541, 3.90052756, 2.66510948], 
+                          [ 0.59030322, 30.55082687, -0.46183924, 4.39769959, 2.55446814], 
+                          [ 0.53114467, 39.20861977, -17.93187819, 20.60397171, 2.27692367]])
+        self.fitparameters = self.fitparameters[self.pmt_mask[self.config['top_pmts']]]
+        
     def compute(self, peaks):
         # Keep large peaks only
-        area_top = peaks['area_per_channel'][:, self.pmt_mask].sum(axis=1)
-        peak_mask = area_top > self.config['min_reconstruction_area']
-        area_top_per_channel = peaks['area_per_channel'][peak_mask, :]
-        area_top_per_channel = area_top_per_channel[:, self.pmt_mask]
+        peak_mask = peaks['area'] > self.config['min_reconstruction_area']
+        p = peaks['area_per_channel'][peak_mask, :]
+        p = p[:, self.pmt_mask]
         results = np.full_like(peaks, np.nan, dtype=self.dtype)
 
-        if len(area_top_per_channel) >= 0:
-            results[peak_mask] = self.weighted_sum(
-                    area_top_per_channel, self.pmt_positions, results[peak_mask])
-        else:
-            #return dict(x=np.zeros(0, dtype=np.float32),
-            #            y=np.zeros(0, dtype=np.float32))
-            return np.zeros(0, dtype=self.dtype)
-        #if not r.flags['C_CONTIGUOUS']:
-        #    r = r.copy(order='C')
+        for p_i,p in enumerate(peaks):
+            apc = p['area_per_channel'][self.pmt_mask]
+            if apc.sum() < self.config['min_reconstruction_area']:
+                continue
+            results[p_i] = tuple(self.reconstructed_position(apc))
         return results
 
+    # Function to return non-negative value corresponding to (radial position - radius TPC) if inside TPC,
+    # used for constraints
     @staticmethod
-    #@numba.jit(nopython=True, nogil=True, cache=True) # numba can't np.average :(
-    def weighted_sum(area_by_channel, location_by_channel, results):
-        for row_i, row in enumerate(area_by_channel):
-            xy = np.average(location_by_channel, weights=row, axis=0)
-            results[row_i] = tuple(xy)
-        return results
+    def insidevolume(inputs):
+        p_TPC_radius = 35
+        return (p_TPC_radius - np.hypot(inputs[0], inputs[1]))
+    
+    # Radial LRF model
+    # from: Position Reconstruction in a Dual Phase Xenon Scintillation Detector (https://arxiv.org/abs/1112.1481)
+    @staticmethod
+    def eta(r, A, r0, a, b, alpha):
+        return A * np.exp( - a * (r/r0) / (1 + (r/r0) ** (1 - alpha)) - b / (1 + (r/r0) ** (- alpha)))   
+
+    ## Position dependent LRF values individual PMTs from model
+    def LRF_PMTs(self, x, y):
+        LRF_PMTs_array = np.array([(self.eta(np.sqrt((x - self.pmt_positions[j, 0])**2 + (y - self.pmt_positions[j, 1])**2), *self.fitparameters[j])) for j in range(0,(self.pmt_positions).shape[0])])
+        return LRF_PMTs_array / (np.sum(LRF_PMTs_array))
+    
+    ## Reconstruct position inside S2 region
+    def reconstructed_position(self, input_array):
+        HFs_input = input_array / np.sum(input_array)
+        reconstruct = lambda x: np.sum(((self.LRF_PMTs(x[0], x[1]) - HFs_input)**2) / (self.LRF_PMTs(x[0], x[1])))
+        x0 = [0.001,0.001]
+        meth = 'SLSQP'
+        cons = ({'type': 'ineq', "fun": self.insidevolume})
+        res = minimize(reconstruct, x0, method=meth, constraints=cons)
+        return res.x
 
 
 @export
@@ -401,7 +439,7 @@ class NCompeting(strax.OverlapWindowPlugin):
             peaks,
             window=self.config['nearby_window'],
             fraction=self.config['min_area_fraction'])
-        return np.array(results, dtype=self.dtype)
+        return dict(n_competing=results)
 
     @staticmethod
     @numba.jit(nopython=True, nogil=True, cache=True)

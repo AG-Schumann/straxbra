@@ -18,6 +18,16 @@ def _GetRundoc(run_id):
     #    raise ValueError('No run with id %d' % run_id)
     return doc  # returns None if no doc
 
+def GetRawPath(run_id):
+    doc = _GetRundoc(run_id)
+    return '/data/storage/strax/raw/live'
+    if doc is not None:
+        try:
+            return doc['data']['raw']['location']
+        except KeyError:
+            pass
+    return '/data/storage/strax/raw/unsorted/%s' % run_id
+
 def GetReadoutThreads(run_id):
     doc = _GetRundoc(run_id)
     if doc is not None:

@@ -18,11 +18,6 @@ def _GetRundoc(run_id):
     #    raise ValueError('No run with id %d' % run_id)
     return doc  # returns None if no doc
 
-def gaus(x, mean, sigma, amp):
-    log_amp = np.log(amp) - 0.5*np.log(2*np.pi*sigma**2)
-    log_exp = -(x - mu)**2/(2*sigma**2)
-    return np.exp(log_amp + log_exp)
-
 def GetRawPath(run_id):
     doc = _GetRundoc(run_id)
     return '/data/storage/strax/raw/live'

@@ -81,7 +81,10 @@ def GetNChan(run_id):
             pass
     return 8
 
-def RemoveRaw(raw_path):
-    run_id = int(raw_path.split('/')[-1])
-    db['runs'].update_one({'run_id' : run_id, 'experiment' : experiment},
-            {'$set' : {'data.raw.location' : 'deleted'}})
+def GetDriftVelocity(run_id):
+    drift_length = 7  # cm
+    rundoc = _GetRundoc(run_id)
+    if rundoc is not None:
+        # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)
+        return 7.1e-4*(rundoc['cathode_mean']/drift_length)**0.15
+    return 1.8e-3  # 500 V/cm

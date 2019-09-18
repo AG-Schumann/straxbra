@@ -636,8 +636,8 @@ class EventBasics(strax.LoopPlugin):
 @strax.takes_config(
     strax.Option(
         name='electron_drift_velocity',
-        help='Vertical electron drift velocity in cm/ns (1e4 mm/us)',
-        default=1.3325e-4
+        help='Vertical electron drift velocity in mm/ns',
+        default_by_run=utils.GetDriftVelocity
     ),
 )
 class EventPositions(strax.Plugin):
@@ -657,8 +657,6 @@ class EventPositions(strax.Plugin):
     def compute(self, events):
         scale = 1
         z_obs = - self.config['electron_drift_velocity'] * events['drift_time']
-        # convert from cm to mm
-        z_obs *= 10
 
         orig_pos = np.vstack([events['x_s2'], events['y_s2'], z_obs]).T
         r_obs = np.linalg.norm(orig_pos[:, :2], axis=1)

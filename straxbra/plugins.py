@@ -321,17 +321,21 @@ class PeakPositions(strax.Plugin):
     parallel = True
 
     def setup(self):
+        ## PMT mask - select top PMTs
+        self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
+        self.pmt_mask[self.config['top_pmts']] = np.ones_like(self.pmt_mask[self.config['top_pmts']])
         ## Load the trained model from corresponding HDF5 file
-        self.model_NN = keras.models.load_model('XeBRA_Position_Reconstruction_NN_Model.h5')
+        self.model_NN = keras.models.load_model('XeBRA_Position_Reconstruction_NN_Model_DualPhase_7TopPMTs.h5')
         
     def compute(self, peaks):
-        # Keep large peaks only
+        ## Keep large peaks only
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
         p = peaks['area_per_channel'][peak_mask, :]
+        p = p[:, self.pmt_mask]
         results = np.full_like(peaks, np.nan, dtype=self.dtype)
 
         for p_i,p in enumerate(peaks):
-            apc = p['area_per_channel']
+            apc = p['area_per_channel'][self.pmt_mask]
             if apc.sum() < self.config['min_reconstruction_area']:
                 continue
             results[p_i] = tuple(self.reconstructed_position(apc))

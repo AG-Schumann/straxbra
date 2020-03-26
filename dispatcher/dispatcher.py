@@ -84,8 +84,8 @@ class Dispatcher(object):
         self.db = client['xebra_daq']
         self.slow_db = client['xebra_data']
         self.root_raw_dir = raw_dir
-        self.sh = SignalHandler()
-        self.schedule = Scheduler(self.sh)
+        self.sh = SignalHandler(self.logger)
+        self.schedule = Scheduler(self.sh, self.logger)
         self.schedule.start()
         self.status_map = ['idle','arming','armed','running','error','unknown']
         #self.context = zmq.Context()
@@ -138,17 +138,32 @@ class Dispatcher(object):
 
     def EndRun(self, run_id):
         self.logger.debug('Ending active run')
-        doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
+        
+        # now ddoes not take any document, but the latest 
+        # doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
+        self.logger.debug("test1-0")
+        doc = self.db['runs'].find({'run_id' : {'$exists' : 1}, 'end' : {'$exists' : 0}}).sort({'run_id': 1}).limit(1)
+        self.logger.debug("test1-1")
+        
+        
+        
+        self.logger.debug('maybe found a document. Run_id: ' + str(doc["run_id"]))
+        
         if doc is None:
             self.logger.error('Invalid run error')
             self.SetStatus(msg='This error should not have happened, what did you do?')
             return
         updates = {}
         raw_dir = '/data/storage/strax/raw/live'
+        # check if thread amount exists
         threads = doc['config']['processing_threads']['charon_reader_0']
+        self.logger.debug('threads found in config and set to ' + str(threads))
+        
+        
         self.logger.debug('Waiting for daq to stop')
         for _ in range(20):
             # it can take a bit for the daq to actually stop
+            self.logger.debug("sleeping: " + str(_))
             time.sleep(1)
             if 'THE_END' in os.listdir(raw_dir) and \
                     len(os.listdir(osp.join(raw_dir, 'THE_END'))) >= threads:
@@ -245,6 +260,9 @@ class Dispatcher(object):
             del cmd_doc['_id']
         self.logger.debug('Scheduling stop')
         cmd_doc['command'] = 'stop'
+        
+        self.logger.debug('Duration: ' + str(doc['duration']))
+        
         self.stop_id = self.schedule.Schedule(delay=doc['duration'], func = partial(
             self.Stop, doc))
         self.logger.debug('Adding rundoc')
@@ -278,8 +296,11 @@ class Dispatcher(object):
             self.schedule.Unschedule(self.stop_id)
             self.stop_id = None
         self.SetStatus(status='online', goal='none', msg='')
+        
         self.logger.debug('Ending run')
+        self.logger.debug('test0-0')
         self.EndRun(run_id=self.current_run_id)
+        self.logger.debug('test0-1')
         self.current_run_id = None
         return
 

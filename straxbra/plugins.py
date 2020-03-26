@@ -18,17 +18,19 @@ adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
 @export
 @strax.takes_config(
     strax.Option('input_dir', type=str, track=False,
-                 default='/data/storage/strax/raw/live',
+                 default_by_run=utils.GetRawPath,
                  help='The directory with the data'),
     strax.Option('experiment', type=str, track=False, default='xebra',
                  help='Which experiment\'s data to load'),
     strax.Option('readout_threads', type=int, track=False,
                  default_by_run=utils.GetReadoutThreads,
                  help='How many readout threads were used'),
-    strax.Option('safe_break', default=1000,
+    strax.Option('safe_break', default=1000, track=False,
                  help='Time in ns between pulse starts indicating a safe break'),
-    strax.Option('do_breaks', default=True,
+    strax.Option('do_breaks', default=True, track=False,
                  help='Do the pulse breaking'),
+    strax.Option('erase_reader', default=False, track=False,
+                 help='Delete reader data after processing'),
     strax.Option('run_start', type=int, track=False,
                  default_by_run=utils.GetRunStart,
                  help='Start time of the run in ns'),
@@ -525,7 +527,7 @@ class EventBasics(strax.LoopPlugin):
 
     def compute_loop(self, event, peaks):
         result = dict(n_peaks=len(peaks))
-        if not len(peaks):
+        if not len(peaks):  # rgb: if empty return
             return result
 
         main_s = dict()
@@ -541,7 +543,7 @@ class EventBasics(strax.LoopPlugin):
             ss = peaks[s_mask]
             s_indices = np.arange(len(peaks))[s_mask]
 
-            if not len(ss):
+            if not len(ss):  # rgb: if ss is empty, s_i index = -1
                 result[f's{s_i}_index'] = -1
                 continue
 
@@ -552,7 +554,7 @@ class EventBasics(strax.LoopPlugin):
                 result[f's{s_i}_largest_other'] = ss['area'][other_i]
 
             result[f's{s_i}_index'] = s_indices[main_i]
-            s = main_s[s_i] = ss[main_i]
+            s = main_s[s_i] = ss[main_i]  # rgb: peaks_data of main S_i
 
             for prop in ['area', 'area_fraction_top',
                          'range_50p_area', 'n_competing']:
@@ -564,6 +566,71 @@ class EventBasics(strax.LoopPlugin):
         # Compute a drift time only if we have a valid S1-S2 pairs
         if len(main_s) == 2:
             result['drift_time'] = main_s[2]['time'] - main_s[1]['time']
+
+        return result
+
+    
+@export
+class EventKryptonBasics(strax.LoopPlugin):
+    """Stolen from EventBasics and modified."""
+    __version__ = '0.0.1'
+    depends_on = ('events',
+                  'peak_basics', 'peak_classification',
+                  'peak_positions', 'n_competing')
+
+    def infer_dtype(self):
+        dtype = [(('Time of second largest S1 relative to main S1 in ns',
+                   't_rel_second_s1'), np.int32)]
+        
+        for s_i in [1,2]:
+            dtype += [((f'Number of PMTs contributing to main S{s_i}',
+                        f's{s_i}_n_channels'), np.int16)]
+            
+        dtype += [((f'Number of PMTs contributing to other largest S1',
+                   'other_s1_n_channels'), np.int16),
+                 ((f'Width (in ns) of the central 50% area of other largest S1',
+                   'other_s1_range_50p_area'), np.float32),
+                  ((f'Largest other S1 peak index',
+                   'other_s1_index'), np.int32)
+                ]
+        return dtype
+
+    def compute_loop(self, event, peaks):
+        result = {'t_rel_second_s1' : 0}
+        if not len(peaks):  # rgb: if empty return
+            return result
+
+        main_s = dict()
+        index = dict()
+        for s_i in [2, 1]:
+            s_mask = peaks['type'] == s_i
+
+            # For determining the main S1, remove all peaks
+            # after the main S2 (if there was one)
+            # This is why S2 finding happened first
+            if s_i == 1 and index['s2'] != -1:
+                s_mask &= peaks['time'] < main_s[2]['time']
+
+            ss = peaks[s_mask]
+            s_indices = np.arange(len(peaks))[s_mask]
+
+            if not len(ss):  # rgb: if ss is empty, s_i index = -1
+                index[f's{s_i}'] = -1
+                continue
+
+            main_i = np.argmax(ss['area'])
+
+            if ss['n_competing'][main_i]>0 and len(ss['area'])>1 and s_i == 1:
+                other_i = np.argsort(ss['area'])[-2]
+                result['t_rel_second_s1'] = ss['time'][other_i] - ss['time'][main_i]
+                result['other_s1_n_channels'] = ss['n_channels'][other_i]
+                result['other_s1_range_50p_area'] = ss['range_50p_area'][other_i]
+                result['other_s1_index'] = s_indices[other_i]
+
+            index[f's{s_i}'] = s_indices[main_i]
+            s = main_s[s_i] = ss[main_i]  # rgb: peaks_data of main S_i
+            
+            result[f's{s_i}_n_channels'] = s['n_channels']
 
         return result
 

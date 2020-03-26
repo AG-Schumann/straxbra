@@ -43,11 +43,11 @@ def GetGains(run_id):
         return np.ones(8)
     run_start = ObjectId.from_datetime(doc['start'])
     try:
-        earlier_doc = list(db['pmt_gains'].find({'_id' : {'$lte' : run_start}}).sort([('_id', -1)]).limit(1))[0]
+        earlier_doc = list(db['pmt_gains'].find({'run' : {'$lte' : run_id}}).sort([('run', -1)]).limit(1))[0]
     except IndexError:
         return np.ones(8)
     try:
-        later_doc = list(db['pmt_gains'].find({'_id' : {'$gte' : run_start}}).sort([('_id', 1)]).limit(1))[0]
+        later_doc = list(db['pmt_gains'].find({'run' : {'$gte' : run_id}}).sort([('_id', 1)]).limit(1))[0]
     except IndexError:
         return np.array(earlier_doc['adc_to_pe'])
     earlier_cal = int(str(earlier_doc['_id'])[:8], 16)
@@ -76,10 +76,12 @@ def GetNChan(run_id):
             pass
     return 8
 
+
 def GetDriftVelocity(run_id):
     drift_length = 7  # cm
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
         # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)
-        return 7.1e-4*(rundoc['cathode_mean']/drift_length)**0.15
+        gate_mean =  rundoc['cathode_mean'] - 280 * rundoc['cathode_current_mean']
+        return 7.1e-4*((rundoc['cathode_mean'] - gate_mean)/drift_length)**0.15
     return 1.8e-3  # 500 V/cm

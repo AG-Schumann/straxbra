@@ -14,7 +14,9 @@ import re
 from blosc import decompress
 import numpy as np
 from strax import record_dtype
-
+import shutil
+from prepare_folder import prepare_folder
+import runs_todo_work
 
 class Scheduler(threading.Thread):
     def __init__(self, sh, logger):
@@ -84,6 +86,7 @@ class Dispatcher(object):
         self.db = client['xebra_daq']
         self.slow_db = client['xebra_data']
         self.root_raw_dir = raw_dir
+        self.raw_dir = str(raw_dir) + "/live"
         self.sh = SignalHandler(self.logger)
         self.schedule = Scheduler(self.sh, self.logger)
         self.schedule.start()
@@ -95,7 +98,10 @@ class Dispatcher(object):
         self.current_run_id = None
         self.armed_for_id = None
         self.default_strax_targets = 'event_positions'
-
+        
+        self.logger.info("preparing folder " + str(self.raw_dir))
+        self.logger.info(prepare_folder(self.raw_dir))
+        
     def __del__(self):
         self.close()
         return
@@ -139,10 +145,10 @@ class Dispatcher(object):
     def EndRun(self, run_id):
         self.logger.debug('Ending active run')
         
-        # now ddoes not take any document, but the latest 
-        # doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
+         
         self.logger.debug("test1-0")
-        doc = self.db['runs'].find({'run_id' : {'$exists' : 1}, 'end' : {'$exists' : 0}}).sort({'run_id': 1}).limit(1)
+        doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
+        # doc = self.db['runs'].find({'run_id' : {'$exists' : 1}, 'end' : {'$exists' : 0}}).sort({'run_id': 1}).limit(1)
         self.logger.debug("test1-1")
         
         
@@ -154,36 +160,40 @@ class Dispatcher(object):
             self.SetStatus(msg='This error should not have happened, what did you do?')
             return
         updates = {}
-        raw_dir = '/data/storage/strax/raw/live'
+        
         # check if thread amount exists
         threads = doc['config']['processing_threads']['charon_reader_0']
         self.logger.debug('threads found in config and set to ' + str(threads))
         
         
         self.logger.debug('Waiting for daq to stop')
+        
         for _ in range(20):
             # it can take a bit for the daq to actually stop
             self.logger.debug("sleeping: " + str(_))
             time.sleep(1)
-            if 'THE_END' in os.listdir(raw_dir) and \
-                    len(os.listdir(osp.join(raw_dir, 'THE_END'))) >= threads:
+            
+            
+            if 'THE_END' in os.listdir(self.raw_dir) and \
+                    len(os.listdir(osp.join(self.raw_dir, 'THE_END'))) >= threads:
                 break
         self.logger.debug('Daq stopped')
-        first_chunk = os.listdir(osp.join(raw_dir, '000000'))[0]
-        with open(osp.join(raw_dir, '000000', first_chunk), 'rb') as f:
+        
+        first_chunk = os.listdir(osp.join(self.raw_dir, '000000'))[0]
+        with open(osp.join(self.raw_dir, '000000', first_chunk), 'rb') as f:
             rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[0]
             run_start = rec['time']
         # cleanup unnecessary folders
-        for fn in os.listdir(raw_dir):
+        for fn in os.listdir(self.raw_dir):
             if 'temp' in fn:
-                shutil.rmtree(osp.join(raw_dir, fn))
-        chunks = sorted(os.listdir(raw_dir))
+                shutil.rmtree(osp.join(self.raw_dir, fn))
+        chunks = sorted(os.listdir(self.raw_dir))
         for chunk in chunks[::-1]:
-            if len(os.listdir(osp.join(raw_dir, chunk))) < threads:
+            if len(os.listdir(osp.join(self.raw_dir, chunk))) < threads:
                 continue  # incomplete folder
-            last_chunk = os.listdir(osp.join(raw_dir, chunk))[0]
+            last_chunk = os.listdir(osp.join(self.raw_dir, chunk))[0]
             try:
-                with open(osp.join(raw_dir, chunk, last_chunk), 'rb') as f:
+                with open(osp.join(self.raw_dir, chunk, last_chunk), 'rb') as f:
                     rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[-1]
                     duration = rec['time'] - run_start
                     updates['end'] = doc['start'] + datetime.timedelta(seconds=duration/1e9)
@@ -196,7 +206,14 @@ class Dispatcher(object):
             updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
         self.logger.debug('Updating rundoc')
         self.db['runs'].update_one({'_id' : doc['_id']}, {'$set' : updates})
+        self.logger.debug('waiting two seconds to continue')
+        time.sleep(2)
         self.logger.debug('Run ended')
+        
+        f = open(self.raw_dir + "/DAQSPATCHER_OK", "x")
+        f.write("OK")
+        f.close
+        
         return
 
     def GetMeshVoltages(self, run_start, run_end):
@@ -239,15 +256,27 @@ class Dispatcher(object):
         cmd_doc['options_override'] = doc['config_override']
         cmd_doc['run_identifier'] = 'live'
         cmd_doc['mode'] = doc['mode']
-        self.db['options'].update_one({'name' : doc['mode']},
-                            {'$set' : {'run_identifier' : 'live'}})
+        self.db['options'].update_one(
+                {'name' : doc['mode']},
+                {'$set' : {'run_identifier' : 'live'}}
+        )
         self.logger.debug('Inserting command doc')
         self.db['control'].insert_one(cmd_doc)
         self.SetStatus(msg='Arming for %s' % cmd_doc['mode'], goal='none')
+        
         self.logger.debug('Done arming')
+        
         return
 
     def Start(self, doc):
+        self.logger.info('Preparing folder')
+        prepare_folder(self.raw_dir)
+        if os.path.isfile(self.raw_dir + "/DAQSPATCHER_OK"):
+            os.remove(self.raw_dir + "/DAQSPATCHER_OK")
+            self.logger.info('removed ready to end file')
+            
+        
+        
         self.logger.info('Starting daq')
         cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
                 'command' : '', 'user' : doc['user']}
@@ -302,11 +331,14 @@ class Dispatcher(object):
         self.EndRun(run_id=self.current_run_id)
         self.logger.debug('test0-1')
         self.current_run_id = None
+        self.logger.info(" waiting for data")
         return
 
     def LED(self, doc):
         self.logger.debug('LED starting')
         led_cal_duration = 60*5
+        # led_cal_duration = 30
+        
         self.SendToLed('arm')
         if 'config_override' not in doc:
             doc['config_override'] = {}
@@ -331,12 +363,32 @@ class Dispatcher(object):
         return
 
     def Spatch(self):
+        bool_print = True
         self.SetStatus(active=True, status='online', msg='', goal='none')
         self.logger.info('Spatching')
         while self.sh.run:
+            
+            if(runs_todo_work.bool_last_run_finished(self.db)):
+                self.logger.info('found ready to copy run from runs_todo, waiting 2 seconds')
+                time.sleep(2)
+                
+                self.logger.info('  copying ...')
+                if runs_todo_work.copy_next_run(self.db):
+                    self.logger.info('  done')
+                else:
+                    self.logger.info('  failed')
+                    
+                
+                
             doc = self.db['system_control'].find_one({'subsystem' : 'daqspatcher'})
             daq_status = self.DAQStatus()
             goal = doc['goal']
+            if (not goal == "none") or bool_print:
+                bool_print = False
+                self.logger.info('  status: ' + str(daq_status))
+                self.logger.info('  goal:   ' + str(goal))
+                self.logger.info(" waiting for data")
+                
             if daq_status == 'offline':
                 time.sleep(5)
                 continue
@@ -354,6 +406,8 @@ class Dispatcher(object):
                         goal='none')
             elif goal == 'stop':
                 if daq_status in ['armed', 'running']:
+                    self.logger.info("TEST")
+                    bool_print = True
                     self.Stop(doc)
                 else:
                     self.SetStatus(msg=('Can\'t stop, daq is %s not '
@@ -364,6 +418,7 @@ class Dispatcher(object):
                 else:
                     self.SetStatus(msg=('Can\'t do LED calibration, daq is %s not '
                             'idle' % daq_status), goal='none')
+        
             time.sleep(1)
             # end of while loop
 

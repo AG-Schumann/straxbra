@@ -2,6 +2,7 @@ from pymongo import MongoClient
 import os
 import time
 from datetime import datetime
+import requests
 
 daq_status_compare = {
     "daq":{"status": "offline", "active": False},
@@ -96,10 +97,19 @@ def copy_next_run(db, verbose = False):
         if verbose:
             print("1")
         
-        db["system_control"].update_one(
-            {"subsystem" : "daqspatcher"},
-            {'$set': json_next}
+        # start via post
+        client = requests.session()
+        client.get("http://localhost/control")
+
+        json_next["csrfmiddlewaretoken"] = client.cookies.get_dict()["csrftoken"]
+
+                
+        command_request = client.post(
+            "http://localhost/control/start",
+            data = json_next,
+            cookies = client.cookies
         )
+
         
         if verbose:
             print("2")

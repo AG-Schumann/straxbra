@@ -17,6 +17,9 @@ from strax import record_dtype
 import shutil
 from prepare_folder import prepare_folder
 import runs_todo_work
+import requests
+import json
+
 
 class Scheduler(threading.Thread):
     def __init__(self, sh, logger):
@@ -146,10 +149,9 @@ class Dispatcher(object):
         self.logger.debug('Ending active run')
         
          
-        self.logger.debug("test1-0")
         doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
         # doc = self.db['runs'].find({'run_id' : {'$exists' : 1}, 'end' : {'$exists' : 0}}).sort({'run_id': 1}).limit(1)
-        self.logger.debug("test1-1")
+        
         
         
         
@@ -173,46 +175,80 @@ class Dispatcher(object):
             self.logger.debug("sleeping: " + str(_))
             time.sleep(1)
             
+            count_folders = len(os.listdir(self.raw_dir))
+            
+            if requests.get("http://localhost/control/get_status").json()["daqstatus"]:
+                self.logger.debug("daq is now idle")
+                break
             
             if 'THE_END' in os.listdir(self.raw_dir) and \
                     len(os.listdir(osp.join(self.raw_dir, 'THE_END'))) >= threads:
+                self.logger.debug("THE_END found")
                 break
-        self.logger.debug('Daq stopped')
+                
+        self.logger.debug(str(count_folders) + " folders in folder)")
         
-        first_chunk = os.listdir(osp.join(self.raw_dir, '000000'))[0]
-        with open(osp.join(self.raw_dir, '000000', first_chunk), 'rb') as f:
-            rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[0]
-            run_start = rec['time']
-        # cleanup unnecessary folders
-        for fn in os.listdir(self.raw_dir):
-            if 'temp' in fn:
-                shutil.rmtree(osp.join(self.raw_dir, fn))
-        chunks = sorted(os.listdir(self.raw_dir))
-        for chunk in chunks[::-1]:
-            if len(os.listdir(osp.join(self.raw_dir, chunk))) < threads:
-                continue  # incomplete folder
-            last_chunk = os.listdir(osp.join(self.raw_dir, chunk))[0]
-            try:
-                with open(osp.join(self.raw_dir, chunk, last_chunk), 'rb') as f:
-                    rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[-1]
-                    duration = rec['time'] - run_start
-                    updates['end'] = doc['start'] + datetime.timedelta(seconds=duration/1e9)
-            except Exception:
-                continue  # mark for removal?
-            break
+        if(count_folders > 0):
+            self.logger.debug('Daq stopped')
+            first_chunk = os.listdir(osp.join(self.raw_dir, '000000'))[0]
+            with open(osp.join(self.raw_dir, '000000', first_chunk), 'rb') as f:
+                rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[0]
+                run_start = rec['time']
+            # cleanup unnecessary folders
+            for fn in os.listdir(self.raw_dir):
+                if 'temp' in fn:
+                    shutil.rmtree(osp.join(self.raw_dir, fn))
+            chunks = sorted(os.listdir(self.raw_dir))
+            for chunk in chunks[::-1]:
+                if len(os.listdir(osp.join(self.raw_dir, chunk))) < threads:
+                    continue  # incomplete folder
+                last_chunk = os.listdir(osp.join(self.raw_dir, chunk))[0]
+                try:
+                    with open(osp.join(self.raw_dir, chunk, last_chunk), 'rb') as f:
+                        rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[-1]
+                        duration = rec['time'] - run_start
+                        updates['end'] = doc['start'] + datetime.timedelta(seconds=duration/1e9)
+                except Exception:
+                    continue  # mark for removal?
+                break
+        else:
+            self.logger.debug("failed finding last chunck, using current time as end")
+            updates['end'] = datetime.datetime.now()
+
 
         if doc['mode'] not in ['led', 'noise']:
             self.logger.debug('Getting SC data')
-            updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
+            try:
+                updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
+            except:
+                self.logger.debug('failed')
+                
         self.logger.debug('Updating rundoc')
         self.db['runs'].update_one({'_id' : doc['_id']}, {'$set' : updates})
         self.logger.debug('waiting two seconds to continue')
-        time.sleep(2)
-        self.logger.debug('Run ended')
+        
+        self.logger.debug('waiting for straxinator to be ready')
         
         f = open(self.raw_dir + "/DAQSPATCHER_OK", "x")
         f.write("OK")
         f.close
+        
+        self.SetStatus(msg='waiting for straxinator to finish')
+        int_straxinator_counter = 0
+        while True:
+            stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
+            if stat_straxinator == "idle":
+                break
+            
+            self.logger.debug("straxinator not ready yet ("+stat_straxinator+"|" + str(int_straxinator_counter) + ")")
+            int_straxinator_counter += 1
+            time.sleep(2)
+        
+        self.SetStatus(msg='')
+        
+        self.logger.debug('Run ended')
+        
+        
         
         return
 
@@ -368,6 +404,11 @@ class Dispatcher(object):
         self.logger.info('Spatching')
         while self.sh.run:
             
+            stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
+            if not stat_straxinator == "idle":
+                time.sleep(5)
+                continue
+                
             if(runs_todo_work.bool_last_run_finished(self.db)):
                 self.logger.info('found ready to copy run from runs_todo, waiting 2 seconds')
                 time.sleep(2)

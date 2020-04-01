@@ -58,33 +58,42 @@ def main(collection):
         
         collection.update_one({'_id' : doc['_id']},
                 {'$set' : {'status' : 'working',
-                           'goal' : 'none', 'msg' : f'straxinating {run_id}'}})
+                           'goal' : 'none', 'msg' : 'waiting for data to be written'}})
         int_slept = 0
-        while len(os.listdir(raw_path)) < 2 and int_slept < 30:
-            print("no data found yet, wating for 2 seconds ("+str(int_slept)+"/30)", flush = True)
-            time.sleep(2)
-            int_slept += 1
+        while len(os.listdir(raw_path)) < 2 :
+            if os.path.isfile(raw_path + "DAQSPATCHER_OK"):
+                print("DAQSPATCHER seems to be ready, no data was written to disk")
+                break
+            else:
+                print("no data found yet, wating for 2 seconds ("+str(int_slept).rjust(3)+")", flush = True)
+                time.sleep(2)
+                int_slept += 1
             
+        collection.update_one({'_id' : doc['_id']},
+                {'$set' : {'status' : 'working',
+                           'goal' : 'none', 'msg' : f'straxinating {run_id}'}})
         print("straxinating", flush = True)
         
         msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']))
         
         print("done straxinating:", flush = True)
         
-        updates = {'status' : 'idle', 'msg' : msg}
-        collection.update_one({'_id' : doc['_id']}, {'$set' : updates})
         if msg == '':
             # at least raw records successfully produced, delete reader data
             print("waiting till daqspatcher is ready", flush = True)
+            collection.update_one({'_id' : doc['_id']},
+                {'$set' : { 'msg' : 'waiting for dispatcher to be ready'}})
         
             while not os.path.isfile(raw_path + "DAQSPATCHER_OK"):
-                print(".", end = "", flush = True)
                 time.sleep(2)
                 
             
             print(prepare_folder(raw_path))
             
             
+        updates = {'status' : 'idle', 'msg' : msg}
+        collection.update_one({'_id' : doc['_id']}, {'$set' : updates})
+        
             
         
     collection.update_one({'subsystem' : 'straxinator'},

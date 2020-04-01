@@ -68,27 +68,31 @@ def main(collection):
                 print("no data found yet, wating for 2 seconds ("+str(int_slept).rjust(3)+")", flush = True)
                 time.sleep(2)
                 int_slept += 1
+        
+        if os.path.isfile(raw_path + "DAQSPATCHER_OK"):
+            print("skipping straxinating", flush = True)
+        else:
             
-        collection.update_one({'_id' : doc['_id']},
-                {'$set' : {'status' : 'working',
-                           'goal' : 'none', 'msg' : f'straxinating {run_id}'}})
-        print("straxinating", flush = True)
-        
-        msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']))
-        
-        print("done straxinating:", flush = True)
-        
-        if msg == '':
-            # at least raw records successfully produced, delete reader data
-            print("waiting till daqspatcher is ready", flush = True)
             collection.update_one({'_id' : doc['_id']},
-                {'$set' : { 'msg' : 'waiting for dispatcher to be ready'}})
-        
-            while not os.path.isfile(raw_path + "DAQSPATCHER_OK"):
-                time.sleep(2)
-                
+                    {'$set' : {'status' : 'working',
+                               'goal' : 'none', 'msg' : f'straxinating {run_id}'}})
+            print("straxinating", flush = True)
             
-            print(prepare_folder(raw_path))
+            msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']))
+        
+            print("done straxinating:", flush = True)
+        
+            if msg == '':
+                # at least raw records successfully produced, delete reader data
+                print("waiting till daqspatcher is ready", flush = True)
+                collection.update_one({'_id' : doc['_id']},
+                    {'$set' : { 'msg' : 'waiting for dispatcher to be ready'}})
+            
+                while not os.path.isfile(raw_path + "DAQSPATCHER_OK"):
+                    time.sleep(2)
+                    
+                
+                print(prepare_folder(raw_path))
             
             
         updates = {'status' : 'idle', 'msg' : msg}

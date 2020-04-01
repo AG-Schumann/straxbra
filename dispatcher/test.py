@@ -14,7 +14,7 @@ bool_last = -1
 
 while True:
     
-    bool_now = runs_todo_work.bool_last_run_finished(db)
+    bool_now = runs_todo_work.bool_last_run_finished(db, verbose = True)
     if not bool_now == bool_last:
         bool_last = bool_now
         

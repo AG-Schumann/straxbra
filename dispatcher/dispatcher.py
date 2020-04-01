@@ -102,8 +102,6 @@ class Dispatcher(object):
         self.armed_for_id = None
         self.default_strax_targets = 'event_positions'
         
-        self.logger.info("preparing folder " + str(self.raw_dir))
-        self.logger.info(prepare_folder(self.raw_dir))
         
     def __del__(self):
         self.close()
@@ -213,7 +211,8 @@ class Dispatcher(object):
                 break
         else:
             self.logger.debug("failed finding last chunck, using current time as end")
-            updates['end'] = datetime.datetime.now()
+            updates['end'] = datetime.datetime.utcnow()
+
 
 
         if doc['mode'] not in ['led', 'noise']:
@@ -284,6 +283,7 @@ class Dispatcher(object):
         return
 
     def Arm(self, doc):
+        
         self.logger.info('Arming for %s' % doc['mode'])
         cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
                 'command' : '', 'user' : doc['user']}
@@ -404,17 +404,16 @@ class Dispatcher(object):
         self.logger.info('Spatching')
         while self.sh.run:
             
-            stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
-            if not stat_straxinator == "idle":
-                time.sleep(5)
-                continue
-                
             if(runs_todo_work.bool_last_run_finished(self.db)):
-                self.logger.info('found ready to copy run from runs_todo, waiting 2 seconds')
-                time.sleep(2)
+                stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
+                if not stat_straxinator == "idle":
+                    self.logger.info('found ready to copy run from runs_todo, but straxinator is not ready')
+                else:
+                    self.logger.info('found ready to copy run from runs_todo, waiting 2 seconds')
+                    time.sleep(2)
                 
                 self.logger.info('  copying ...')
-                if runs_todo_work.copy_next_run(self.db):
+                if runs_todo_work.copy_next_run(self.db, logger = self.logger):
                     self.logger.info('  done')
                 else:
                     self.logger.info('  failed')

@@ -13,6 +13,10 @@ daq_status_compare = {
 
 
 
+def writetofile(content):
+    with open("temp.html", "w") as f:
+        f.write(str(content)[2:].replace("\\n", "\n"))
+    return(0)
 
 
 def bool_last_run_finished(db, verbose = False):
@@ -59,65 +63,64 @@ def bool_last_run_finished(db, verbose = False):
     except:
         return(False)
 
-def copy_next_run(db, verbose = False):
+def copy_next_run(db, verbose = False, logger = False):
     json_next_run = list(db["runs_todo"].aggregate(
             [
                 {'$sort' : {"_id" : 1}},
                 {'$limit' : 1}
             ]
     ))[0]
+    if logger != False:
+        logger.info('found Run:')
+        for key in json_next_run:
+            print("  " + key + ": "+ str(json_next_run[key]))
     
-    if json_next_run["mode"] == "led":
-        json_next_run["goal"] = "led"
-    
-
     json_next = {
         "comment" : "",
         "config_override": {},
-        "duration": 300,
-        "goal": "arm",
-        "mode": "led",
-        "user" : "runlist",
+        "duration": 2,
+        "mode": "Co-57",
+        "user": "runlist"
     }
     
     _id = json_next_run["_id"]
-    if verbose:
-       print(_id) 
-    
     for key in json_next:
         if key in json_next_run:
             json_next[key] = json_next_run[key]
     
-    if verbose:
-       print(json_next) 
-    
     
     # modify 
     try:
-        if verbose:
-            print("1")
         
         # start via post
+        if logger != False:
+            logger.info('obtaining cookie')
+    
         client = requests.session()
         client.get("http://localhost/control")
 
         json_next["csrfmiddlewaretoken"] = client.cookies.get_dict()["csrftoken"]
 
-                
+
         command_request = client.post(
             "http://localhost/control/start",
             data = json_next,
             cookies = client.cookies
         )
+        
+        if logger != False:
+            logger.info('status code: ' + str(command_request.status_code))
+        
+        if command_request.status_code == 200:
+            if logger != False:
+                logger.info("sleeping for 2 secons")
+            time.sleep(2)
+            if logger != False:
+                logger.info("slept")
 
         
-        if verbose:
-            print("2")
-    
         db["runs_todo"].delete_one({"_id": _id})
-    
-        if verbose:
-            print("3")
+        logger.info("deleted run from runlist")
     
         return(True)
     except:

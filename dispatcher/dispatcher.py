@@ -283,6 +283,8 @@ class Dispatcher(object):
         return
 
     def Arm(self, doc):
+        self.logger.info('Preparing folder')
+        prepare_folder(self.raw_dir)
         
         self.logger.info('Arming for %s' % doc['mode'])
         cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
@@ -305,8 +307,6 @@ class Dispatcher(object):
         return
 
     def Start(self, doc):
-        self.logger.info('Preparing folder')
-        prepare_folder(self.raw_dir)
         if os.path.isfile(self.raw_dir + "/DAQSPATCHER_OK"):
             os.remove(self.raw_dir + "/DAQSPATCHER_OK")
             self.logger.info('removed ready to end file')
@@ -408,15 +408,20 @@ class Dispatcher(object):
                 stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
                 if not stat_straxinator == "idle":
                     self.logger.info('found ready to copy run from runs_todo, but straxinator is not ready')
+                    
                 else:
                     self.logger.info('found ready to copy run from runs_todo, waiting 2 seconds')
-                    time.sleep(2)
-                
-                self.logger.info('  copying ...')
-                if runs_todo_work.copy_next_run(self.db, logger = self.logger):
-                    self.logger.info('  done')
-                else:
-                    self.logger.info('  failed')
+                    self.logger.info('  copying ...')
+                    
+                    threading.Thread(
+                        target = runs_todo_work.copy_next_run,
+                        args=(
+                            self.db,
+                            self.logger
+                        )
+                    ).start()
+                    
+                    self.logger.info('  thread started?')
                     
                 
                 

@@ -63,7 +63,7 @@ def bool_last_run_finished(db, verbose = False):
     except:
         return(False)
 
-def copy_next_run(db, verbose = False, logger = False):
+def copy_next_run(db, logger = False):
     json_next_run = list(db["runs_todo"].aggregate(
             [
                 {'$sort' : {"_id" : 1}},
@@ -78,8 +78,8 @@ def copy_next_run(db, verbose = False, logger = False):
     json_next = {
         "comment" : "",
         "config_override": {},
-        "duration": 2,
-        "mode": "Co-57",
+        "duration": "3",
+        "mode": "led",
         "user": "runlist"
     }
     
@@ -95,11 +95,13 @@ def copy_next_run(db, verbose = False, logger = False):
         # start via post
         if logger != False:
             logger.info('obtaining cookie')
-    
+
         client = requests.session()
         client.get("http://localhost/control")
-
+        
+        json_next["duration"] = str(int(json_next["duration"]))
         json_next["csrfmiddlewaretoken"] = client.cookies.get_dict()["csrftoken"]
+        db["djangostatus"].insert(json_next)
 
 
         command_request = client.post(
@@ -107,20 +109,17 @@ def copy_next_run(db, verbose = False, logger = False):
             data = json_next,
             cookies = client.cookies
         )
-        
+        db["djangostatus"].insert({"request_status":command_request.status_code})
         if logger != False:
             logger.info('status code: ' + str(command_request.status_code))
         
         if command_request.status_code == 200:
-            if logger != False:
-                logger.info("sleeping for 2 secons")
-            time.sleep(2)
-            if logger != False:
-                logger.info("slept")
-
+            db["runs_todo"].delete_one({"_id": _id})
+            logger.info("deleted run from runlist")
+        else:
+            logger.debug("Status code not 200")
         
-        db["runs_todo"].delete_one({"_id": _id})
-        logger.info("deleted run from runlist")
+        db["djangostatus"].insert({"request_status":"complete"})
     
         return(True)
     except:

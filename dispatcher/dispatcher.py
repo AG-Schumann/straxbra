@@ -344,7 +344,7 @@ class Dispatcher(object):
             else:
                 targets = 'raw_records'
             self.db['system_control'].update_one({'subsystem' : 'straxinator'},
-                    {'$set' : {'goal' : run_id_rel, 'targets' : targets}})
+                    {'$set' : {'goal':run_id_rel, 'targets':targets, 'duration': doc['duration']}})
         else:
             self.logger.debug('Not straxing')
         return

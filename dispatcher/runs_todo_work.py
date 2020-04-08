@@ -6,7 +6,7 @@ import requests
 
 daq_status_compare = {
     "daq":{"status": "offline", "active": False},
-    "daqspatcher":{"active": True, "status": "online"},
+    "daqspatcher":{"active": True, "status": "online", "worklist":"running"},
     "straxinator":{"active": True, "status": "idle"},
     "pulser":{},
 }
@@ -93,23 +93,22 @@ def copy_next_run(db, logger = False):
     try:
         
         # start via post
-        if logger != False:
-            logger.info('obtaining cookie')
-
+        
         client = requests.session()
         client.get("http://localhost/control")
         
-        json_next["duration"] = str(int(json_next["duration"]))
+        
         json_next["csrfmiddlewaretoken"] = client.cookies.get_dict()["csrftoken"]
-        db["djangostatus"].insert(json_next)
-
-
+        
+        
+        
+        
         command_request = client.post(
             "http://localhost/control/start",
             data = json_next,
             cookies = client.cookies
         )
-        db["djangostatus"].insert({"request_status":command_request.status_code})
+        
         if logger != False:
             logger.info('status code: ' + str(command_request.status_code))
         
@@ -118,9 +117,8 @@ def copy_next_run(db, logger = False):
             logger.info("deleted run from runlist")
         else:
             logger.debug("Status code not 200")
+            
         
-        db["djangostatus"].insert({"request_status":"complete"})
-    
         return(True)
     except:
         return(False)

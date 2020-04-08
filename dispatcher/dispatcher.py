@@ -382,6 +382,9 @@ class Dispatcher(object):
         self.Arm(doc)
         self.SetStatus(msg='Arming for LED calibration', goal='none')
         self.logger.debug('Waiting for daq to arm')
+        
+        self.db['system_control'].update_one({'subsystem':'daqspatcher'}, {'$set':{"duration":led_cal_duration}})
+        
         status = self.DAQStatus()
         while status != 'armed':
             time.sleep(1)

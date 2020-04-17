@@ -43,6 +43,10 @@ def bool_last_run_finished(db, verbose = False):
             for field_compare in list_compare:
                 if not json_system_state[field_compare] == list_compare[field_compare]:
                     bool_system_states = False
+                    if verbose:
+                        print(
+                          "\n\33[33m  " + str(json_system_state["subsystem"]) + ":\33[0m" + str(json_system_state[field_compare])
+                        )
                     
         
         int_upcoming_runs = db["runs_todo"].count_documents({})

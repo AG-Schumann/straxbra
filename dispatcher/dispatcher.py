@@ -372,7 +372,8 @@ class Dispatcher(object):
 
     def LED(self, doc):
         self.logger.debug('LED starting')
-        led_cal_duration = 60*5
+        #led_cal_duration = 60*3
+        led_cal_duration = 60*1
         # led_cal_duration = 30
         
         self.SendToLed('arm')

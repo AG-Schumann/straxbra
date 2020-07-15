@@ -202,6 +202,7 @@ class Peaks(strax.Plugin):
     data_kind = 'peaks'
     parallel = True
     rechunk_on_save = True
+    
 
     def infer_dtype(self):
         return strax.peak_dtype(n_channels=self.config['n_channels'])
@@ -584,15 +585,15 @@ class EventKryptonBasics(strax.LoopPlugin):
         
         for s_i in [1,2]:
             dtype += [((f'Number of PMTs contributing to main S{s_i}',
-                        f's{s_i}_n_channels'), np.int16)]
-            
-        dtype += [((f'Number of PMTs contributing to other largest S1',
-                   'other_s1_n_channels'), np.int16),
-                 ((f'Width (in ns) of the central 50% area of other largest S1',
-                   'other_s1_range_50p_area'), np.float32),
-                  ((f'Largest other S1 peak index',
-                   'other_s1_index'), np.int32)
-                ]
+                        f's{s_i}_n_channels'), np.int16),
+                      ((f'Width (in ns) of the central 50% area of other largest S{s_i}',
+                        f'other_s{s_i}_range_50p_area'), np.float32),
+                      ((f'Number of PMTs contributing to other largest S{s_i}',
+                        f'other_s{s_i}_n_channels'), np.int16),
+                      ((f'Largest other S{s_i} peak index',
+                        f'other_s{s_i}_index'), np.int32)
+                     ]
+
         return dtype
 
     def compute_loop(self, event, peaks):
@@ -620,12 +621,16 @@ class EventKryptonBasics(strax.LoopPlugin):
 
             main_i = np.argmax(ss['area'])
 
-            if ss['n_competing'][main_i]>0 and len(ss['area'])>1 and s_i == 1:
+            if ss['n_competing'][main_i]>0 and len(ss['area'])>1:
                 other_i = np.argsort(ss['area'])[-2]
-                result['t_rel_second_s1'] = ss['time'][other_i] - ss['time'][main_i]
-                result['other_s1_n_channels'] = ss['n_channels'][other_i]
-                result['other_s1_range_50p_area'] = ss['range_50p_area'][other_i]
-                result['other_s1_index'] = s_indices[other_i]
+                result[f'other_s{s_i}_n_channels'] = ss['n_channels'][other_i]
+                result[f'other_s{s_i}_range_50p_area'] = ss['range_50p_area'][other_i]
+                result[f'other_s{s_i}_index'] = s_indices[other_i]
+                    
+                if s_i == 1:
+                    result['t_rel_second_s1'] = ss['time'][other_i] - ss['time'][main_i]
+
+                    
 
             index[f's{s_i}'] = s_indices[main_i]
             s = main_s[s_i] = ss[main_i]  # rgb: peaks_data of main S_i

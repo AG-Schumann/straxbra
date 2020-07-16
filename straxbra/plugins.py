@@ -3,7 +3,6 @@ import shutil
 
 import numpy as np
 from scipy.optimize import minimize
-import keras
 
 import numba
 
@@ -324,6 +323,7 @@ class PeakPositions(strax.Plugin):
     parallel = True
 
     def setup(self):
+        import keras
         ## PMT mask - select top PMTs
         self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
         self.pmt_mask[self.config['top_pmts']] = np.ones_like(self.pmt_mask[self.config['top_pmts']])

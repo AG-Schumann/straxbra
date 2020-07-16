@@ -666,7 +666,7 @@ class EventHermBasics(strax.LoopPlugin):
                         f's{i}_range_50p_area'), np.float32),
                       ((f'Main S{i} number of competing peaks',
                         f's{i}_n_competing'), np.int32)]
-                dtype += [(f's2_largest_other', np.float32,
+            dtype += [(f's2_largest_other', np.float32,
                    f'Area of largest other s2'),
                   (f's1_largest_other', np.float32,
                    f'Area of largest other s1')

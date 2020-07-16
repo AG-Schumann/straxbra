@@ -15,9 +15,15 @@ experiments = {
 
 MAX_RUN_ID = 999999  # because reasons
 
+def _GetExperiment(run_id, info):
+    if run_id <= 9999:
+        return experiments[0][info]
+    else:
+        indicator = int(str(run_id)[0])
+        return experiments[indicator][info]
 
 def _GetRundoc(run_id):
-    experiment = experiments[int(run_id[0])]['name']
+    experiment = _GetExperiment(run_id, 'name')
     query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment' : experiment}
     doc = db['runs'].find_one(query)
     #if doc is None:
@@ -45,8 +51,8 @@ def GetReadoutThreads(run_id):
 
 def GetGains(run_id):
     doc = _GetRundoc(run_id)
-    n_pmts = experiments[ int(run_id[0]) ]['n_pmts']
-    
+    n_pmts = _GetExperiment(run_id, 'n_pmts')
+
     if doc is None:
         return np.ones(n_pmts)
     run_start = ObjectId.from_datetime(doc['start'])
@@ -84,11 +90,12 @@ def GetNChan(run_id):
             return len(rundoc['config']['channels'][str(board_id)])
         except KeyError:
             pass
-    return experiments[ int(run_id[0]) ]['n_pmts']
+
+    return _GetExperiment(run_id, 'n_pmts')
 
 
 def GetDriftVelocity(run_id):
-    drift_length = experiments[ int(rund_id[0]) ]['drift_length']  # cm
+    drift_length = _GetExperiment(run_id, 'drift_length')  # cm
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
         # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)

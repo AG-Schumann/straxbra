@@ -8,10 +8,16 @@ import time
 
 __client = MongoClient(os.environ['MONGO_DAQ_URI'])
 db = __client['xebra_daq']
-experiment = 'xebra'
+experiments = {
+        0: {'name': 'xebra', 'n_pmts': 8, 'drift_length': 7}, # drift_lengths in cm
+        1: {'name':  'htpc', 'n_pmts': 2, 'drift_length': np.nan}  # TODO: insert correct drift_length
+        }
+
 MAX_RUN_ID = 999999  # because reasons
 
+
 def _GetRundoc(run_id):
+    experiment = experiments[int(run_id[0])]['name']
     query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment' : experiment}
     doc = db['runs'].find_one(query)
     #if doc is None:
@@ -39,13 +45,15 @@ def GetReadoutThreads(run_id):
 
 def GetGains(run_id):
     doc = _GetRundoc(run_id)
+    n_pmts = experiments[ int(run_id[0]) ]['n_pmts']
+    
     if doc is None:
-        return np.ones(8)
+        return np.ones(n_pmts)
     run_start = ObjectId.from_datetime(doc['start'])
     try:
         earlier_doc = list(db['pmt_gains'].find({'run' : {'$lte' : run_id}}).sort([('time', -1)]).limit(1))[0]
     except IndexError:
-        return np.ones(8)
+        return np.ones(n_pmts)
     try:
         later_doc = list(db['pmt_gains'].find({'run' : {'$gte' : run_id}}).sort([('time', 1)]).limit(1))[0]
     except IndexError:
@@ -76,11 +84,11 @@ def GetNChan(run_id):
             return len(rundoc['config']['channels'][str(board_id)])
         except KeyError:
             pass
-    return 8
+    return experiments[ int(run_id[0]) ]['n_pmts']
 
 
 def GetDriftVelocity(run_id):
-    drift_length = 7  # cm
+    drift_length = experiments[ int(rund_id[0]) ]['drift_length']  # cm
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
         # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)

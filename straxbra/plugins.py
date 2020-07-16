@@ -528,7 +528,7 @@ class EventBasics(strax.LoopPlugin):
 
     def compute_loop(self, event, peaks):
         result = dict(n_peaks=len(peaks))
-        if not len(peaks):  # rgb: if empty return
+        if not len(peaks):
             return result
 
         main_s = dict()
@@ -544,7 +544,7 @@ class EventBasics(strax.LoopPlugin):
             ss = peaks[s_mask]
             s_indices = np.arange(len(peaks))[s_mask]
 
-            if not len(ss):  # rgb: if ss is empty, s_i index = -1
+            if not len(ss):
                 result[f's{s_i}_index'] = -1
                 continue
 
@@ -555,7 +555,7 @@ class EventBasics(strax.LoopPlugin):
                 result[f's{s_i}_largest_other'] = ss['area'][other_i]
 
             result[f's{s_i}_index'] = s_indices[main_i]
-            s = main_s[s_i] = ss[main_i]  # rgb: peaks_data of main S_i
+            s = main_s[s_i] = ss[main_i]
 
             for prop in ['area', 'area_fraction_top',
                          'range_50p_area', 'n_competing']:
@@ -598,7 +598,7 @@ class EventKryptonBasics(strax.LoopPlugin):
 
     def compute_loop(self, event, peaks):
         result = {'t_rel_second_s1' : 0}
-        if not len(peaks):  # rgb: if empty return
+        if not len(peaks):
             return result
 
         main_s = dict()
@@ -615,7 +615,7 @@ class EventKryptonBasics(strax.LoopPlugin):
             ss = peaks[s_mask]
             s_indices = np.arange(len(peaks))[s_mask]
 
-            if not len(ss):  # rgb: if ss is empty, s_i index = -1
+            if not len(ss):
                 index[f's{s_i}'] = -1
                 continue
 
@@ -633,11 +633,87 @@ class EventKryptonBasics(strax.LoopPlugin):
                     
 
             index[f's{s_i}'] = s_indices[main_i]
-            s = main_s[s_i] = ss[main_i]  # rgb: peaks_data of main S_i
+            s = main_s[s_i] = ss[main_i]
             
             result[f's{s_i}_n_channels'] = s['n_channels']
 
         return result
+
+
+
+@export
+class EventHermBasics(strax.LoopPlugin):
+    __version__ = '0.0.1'
+    depends_on = ('events',
+                  'peak_basics', 'peak_classification',
+                  'n_competing')
+
+    def infer_dtype(self):
+        dtype = [(('Number of peaks in the event',
+                   'n_peaks'), np.int32),
+                 (('Drift time between main S1 and S2 in ns',
+                   'drift_time'), np.int64)]
+        for i in [1, 2]:
+            dtype += [((f'Main S{i} peak index',
+                        f's{i}_index'), np.int32),
+                      ((f'Main S{i} area (PE), uncorrected',
+                        f's{i}_area'), np.float32),
+                      ((f'Main S{i} area (PE), uncorrected, bottom PMTs only',
+                        f's{i}_area_b'), np.float32),
+                      ((f'Main S{i} area fraction top',
+                        f's{i}_area_fraction_top'), np.float32),
+                      ((f'Main S{i} width (ns, 50% area)',
+                        f's{i}_range_50p_area'), np.float32),
+                      ((f'Main S{i} number of competing peaks',
+                        f's{i}_n_competing'), np.int32)]
+                dtype += [(f's2_largest_other', np.float32,
+                   f'Area of largest other s2'),
+                  (f's1_largest_other', np.float32,
+                   f'Area of largest other s1')
+                  ]
+        return dtype
+
+    def compute_loop(self, event, peaks):
+        result = dict(n_peaks=len(peaks))
+        if not len(peaks):
+            return result
+
+        main_s = dict()
+        for s_i in [2, 1]:
+            s_mask = peaks['type'] == s_i
+
+            # For determining the main S1, remove all peaks
+            # after the main S2 (if there was one)
+            # This is why S2 finding happened first
+            if s_i == 1 and result[f's2_index'] != -1:
+                s_mask &= peaks['time'] < main_s[2]['time']
+
+            ss = peaks[s_mask]
+            s_indices = np.arange(len(peaks))[s_mask]
+
+            if not len(ss):
+                result[f's{s_i}_index'] = -1
+                continue
+
+            main_i = np.argmax(ss['area'])
+
+            if ss['n_competing'][main_i]>0 and len(ss['area'])>1:
+                other_i = np.argsort(ss['area'])[-2]
+                result[f's{s_i}_largest_other'] = ss['area'][other_i]
+
+            result[f's{s_i}_index'] = s_indices[main_i]
+            s = main_s[s_i] = ss[main_i]
+
+            for prop in ['area', 'area_fraction_top',
+                         'range_50p_area', 'n_competing']:
+                result[f's{s_i}_{prop}'] = s[prop]
+            
+        # Compute a drift time only if we have a valid S1-S2 pairs
+        if len(main_s) == 2:
+            result['drift_time'] = main_s[2]['time'] - main_s[1]['time']
+
+        return result
+
 
 
 @export
@@ -676,6 +752,32 @@ class EventPositions(strax.Plugin):
                       theta=np.arctan2(orig_pos[:, 1], orig_pos[:, 0]))
 
         return result
+
+
+
+@export
+@strax.takes_config(
+    strax.Option(
+        name='electron_drift_velocity',
+        help='Vertical electron drift velocity in mm/ns',
+        default_by_run=utils.GetDriftVelocity
+    ),
+)
+class EventHermPositions(strax.Plugin):
+    depends_on = ('event_herm_basics',)
+    dtype = [
+        ('z', np.float32,
+         'Interaction z-position (mm)')
+        ]
+
+    def compute(self, events):
+        z_obs = - self.config['electron_drift_velocity'] * events['drift_time']
+        return result
+
+
+
+
+
 
 
 @strax.takes_config(

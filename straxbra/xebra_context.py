@@ -1,6 +1,6 @@
 import strax
 import numpy as np
-import tqdm
+import os
 import pandas as pd
 
 export, __all__ = strax.exporter()
@@ -14,6 +14,9 @@ def process_runlist(run_id):
         return runs_list
     return run_id
 
+
+storage_base_dir = '/data/storage/strax/cached/'
+
 @export
 class XebraContext(strax.Context):
 
@@ -26,7 +29,7 @@ class XebraContext(strax.Context):
         elif 'experiment' not in kwargs['config']:
             kwargs['config']['experiment'] = experiment
         if 'storage' not in kwargs:
-            kwargs['storage'] = f'/data/storage/strax/cached/{experiment}/'
+            kwargs['storage'] = os.path.join(storage_base_dir, experiment)
         if 'register' not in kwargs and 'register_all' not in kwargs:
             kwargs['register_all'] = plugins
         super().__init__(*args, **kwargs)
@@ -40,19 +43,24 @@ class XebraContext(strax.Context):
         return super().get_df(run_id, *args, **kwargs)
 
 
+
 @export
-class HtpcContext(XebraContext):
+class HtpcContext(strax.Context):
 
     std_dtypes = ('raw_records', 'records', 'peaks', 'events')
     # new plugins must be listed here in order to be registered
     plugins_to_register = 'DAQReader Records Peaks PeakBasics PeakClassification ' \
                           'NCompeting Events EventHermBasics EventHermPositions'.split(' ')
 
-    def __ init__(self, *args, **kwargs):
-        if 'experiment' not in kwargs:
-            kwargs['experiment'] = 'htpc'
+    def __init__(self, *args, **kwargs):
+        experiment = kwargs.pop('experiment', 'htpc')
+
         if 'config' not in kwargs:
-            kwargs['config'] = {}
+            kwargs['config'] = {'experiment': experiment}
+        elif 'experiment' not in kwargs['config']:
+            kwargs['config']['experiment'] = experiment
+        if 'storage' not in kwargs:
+            kwargs['storage'] = os.path.join(storage_base_dir, experiment)
 
         # add configs that must be (/you wanto to be) different from xebra dual phase tpc here
         # n_channels and drift_length/drift_vel is set in utils.py - relies on run_id starting with '1'

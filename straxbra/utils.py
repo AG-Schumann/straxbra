@@ -8,22 +8,12 @@ import time
 
 __client = MongoClient(os.environ['MONGO_DAQ_URI'])
 db = __client['xebra_daq']
-experiments = {
-        0: {'name': 'xebra', 'n_pmts': 8, 'drift_length': 7}, # drift_lengths in cm
-        1: {'name':  'htpc', 'n_pmts': 2, 'drift_length': np.nan}  # TODO: insert correct drift_length
-        }
-
+experiment = 'xebra'
+n_pmts = 8
+drift_length = 7  # in cm
 MAX_RUN_ID = 999999  # because reasons
 
-def _GetExperiment(run_id, info):
-    if run_id <= 9999:
-        return experiments[0][info]
-    else:
-        indicator = int(str(run_id)[0])
-        return experiments[indicator][info]
-
 def _GetRundoc(run_id):
-    experiment = _GetExperiment(run_id, 'name')
     query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment' : experiment}
     doc = db['runs'].find_one(query)
     #if doc is None:
@@ -51,7 +41,6 @@ def GetReadoutThreads(run_id):
 
 def GetGains(run_id):
     doc = _GetRundoc(run_id)
-    n_pmts = _GetExperiment(run_id, 'n_pmts')
 
     if doc is None:
         return np.ones(n_pmts)
@@ -91,11 +80,10 @@ def GetNChan(run_id):
         except KeyError:
             pass
 
-    return _GetExperiment(run_id, 'n_pmts')
+    return n_pmts
 
 
 def GetDriftVelocity(run_id):
-    drift_length = _GetExperiment(run_id, 'drift_length')  # cm
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
         # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)

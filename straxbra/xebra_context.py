@@ -16,6 +16,7 @@ def process_runlist(run_id):
 
 
 def update(d, u):
+    """Deep-updates dicts. Dicts as values are updated instead of being replaced."""
     for k, v in u.items():
         if isinstance(v, dict):
             d[k] = update(d.get(k, {}), v)
@@ -56,38 +57,23 @@ class XebraContext(strax.Context):
 class HtpcContext(strax.Context):
 
     std_dtypes = ('raw_records', 'records', 'peaks', 'events')
-    # new plugins must be listed here in order to be registered
-    plugins_to_register = 'DAQReader Records Peaks PeakBasics PeakClassification ' \
-                          'NCompeting Events EventHermBasics EventHermPositions'.split(' ')
 
     def __init__(self, *args, **kwargs):
-        
-        experiment = kwargs.pop('experiment', 'htpc')
-        
+        straxbra.utils.experiment = 'htpc'
+        straxbra.utils.n_pmts = 2
+        straxbra.utils.drift_length = 7.8  # in cm
+
         # add configs that must be (/you wanto to be) different from xebra dual phase tpc here
-        # n_channels and drift_length/drift_vel is set in utils.py - relies on run_id starting with '1'
-        configs = {                  # type       plugin       xebra_val
-                'hit_threshold': 7,  #  int   records,peaks       30
-                'top_pmts': [1]      # list   p_basics,p_pos    list(range(1,8))
+        configs = {                              # type       plugin       xebra_val
+                'hit_threshold': 7,              #  int   records,peaks       30
+                'top_pmts': [1],                 # list   p_basics,p_pos    list(range(1,8))
+                'min_reconstruction_area': 1e10  #  this makes sure no pos-reconst. is attempted
                 }
                 
+        experiment = kwargs.pop('experiment', 'htpc')
         standards = {'storage': os.path.join(storage_base_dir, experiment),
+                     'register_all': plugins,
                      'config': update({'experiment': experiment}, configs)}
         
         kwargs = update(standards, kwargs)
-        
-        if 'register' not in kwargs and 'register_all' not in kwargs:
-            register = []
-            # mostly stolen from strax's context.py
-            for plugin in dir(plugins):
-                plugin = getattr(plugins, plugin)
-                if type(plugin) != type(type):
-                    continue
-                if (
-                        issubclass(plugin, strax.Plugin) and
-                        plugin.__name__ in self.plugins_to_register):
-
-                    register.append(plugin)
-            kwargs['register'] = register
-
         super().__init__(*args, **kwargs)

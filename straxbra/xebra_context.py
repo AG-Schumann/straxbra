@@ -15,6 +15,14 @@ def process_runlist(run_id):
     return run_id
 
 
+def update(d, u):
+    for k, v in u.items():
+        if isinstance(v, dict):
+            d[k] = update(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
+
 storage_base_dir = '/data/storage/strax/cached/'
 
 @export
@@ -53,25 +61,20 @@ class HtpcContext(strax.Context):
                           'NCompeting Events EventHermBasics EventHermPositions'.split(' ')
 
     def __init__(self, *args, **kwargs):
+        
         experiment = kwargs.pop('experiment', 'htpc')
-
-        if 'config' not in kwargs:
-            kwargs['config'] = {'experiment': experiment}
-        elif 'experiment' not in kwargs['config']:
-            kwargs['config']['experiment'] = experiment
-        if 'storage' not in kwargs:
-            kwargs['storage'] = os.path.join(storage_base_dir, experiment)
-
+        
         # add configs that must be (/you wanto to be) different from xebra dual phase tpc here
         # n_channels and drift_length/drift_vel is set in utils.py - relies on run_id starting with '1'
         configs = {                  # type       plugin       xebra_val
                 'hit_threshold': 7,  #  int   records,peaks       30
                 'top_pmts': [1]      # list   p_basics,p_pos    list(range(1,8))
                 }
-
-        for config_name, config_value in configs.items():
-            if config_name not in kwargs['config']:
-                kwargs['config'][c_name] = c_value
+                
+        standards = {'storage': os.path.join(storage_base_dir, experiment),
+                     'config': update({'experiment': experiment}, configs)}
+        
+        kwargs = update(standards, kwargs)
         
         if 'register' not in kwargs and 'register_all' not in kwargs:
             register = []
@@ -88,10 +91,3 @@ class HtpcContext(strax.Context):
             kwargs['register'] = register
 
         super().__init__(*args, **kwargs)
-              
-
-
-
-
-
-

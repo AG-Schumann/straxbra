@@ -68,7 +68,9 @@ class HtpcContext(strax.Context):
         configs = {                              # type       plugin       xebra_val
                 'hit_threshold': 7,              #  int   records,peaks       30
                 'top_pmts': [1],                 # list   p_basics,p_pos    list(range(1,8))
-                'min_reconstruction_area': 1e10  #  this makes sure no pos-reconst. is attempted
+                'min_reconstruction_area': 1e10, #  this makes sure no pos-reconst. is attempted
+                # always use that model so the hash won't change if another exp changes the model:
+                'nn_model': 'fake_htpc_model_not_actually_used_but_must_exist.h5'
                 }
 
         experiment = kwargs.pop('experiment', 'htpc')

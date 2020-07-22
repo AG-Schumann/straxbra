@@ -201,7 +201,7 @@ class Peaks(strax.Plugin):
     data_kind = 'peaks'
     parallel = True
     rechunk_on_save = True
-    
+
 
     def infer_dtype(self):
         return strax.peak_dtype(n_channels=self.config['n_channels'])
@@ -299,7 +299,12 @@ class PeakBasics(strax.Plugin):
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
                  help='Skip reconstruction if area_top (PE) is less than this',
-                 default=100)
+                 default=100),
+    strax.Option('nn_model', type=str,
+                 help='Filename of the NN for the position-reconstruction.' \
+                      'File should be located in "/data/workspace/nn_models/".',
+                 default='XeBRA_Position_Reconstruction_NN_Model_DualPhase_7TopPMTs.h5')
+
 )
 class PeakPositions(strax.Plugin):
     '''
@@ -311,7 +316,7 @@ class PeakPositions(strax.Plugin):
 
     Status: September 2019, Version 0.0.3
 
-    Position reconstruction for XeBRA using a Deep Feed Forward (DFF) Neural Network 
+    Position reconstruction for XeBRA using a Deep Feed Forward (DFF) Neural Network
     with Keras trained on Geant4 MC simulations.
     '''
     __version__ = "0.0.3"
@@ -328,8 +333,8 @@ class PeakPositions(strax.Plugin):
         self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
         self.pmt_mask[self.config['top_pmts']] = np.ones_like(self.pmt_mask[self.config['top_pmts']])
         ## Load the trained model from corresponding HDF5 file
-        self.model_NN = keras.models.load_model('/data/workspace/nn_models/XeBRA_Position_Reconstruction_NN_Model_DualPhase_7TopPMTs.h5')
-        
+        self.model_NN = keras.models.load_model(os.path.join('/data/workspace/nn_models', self.config['nn_model']))
+
     def compute(self, peaks):
         ## Keep large peaks only
         results = np.full_like(peaks, np.nan, dtype=self.dtype)
@@ -570,7 +575,7 @@ class EventBasics(strax.LoopPlugin):
 
         return result
 
-    
+
 @export
 class EventKryptonBasics(strax.LoopPlugin):
     """Stolen from EventBasics and modified."""
@@ -582,7 +587,7 @@ class EventKryptonBasics(strax.LoopPlugin):
     def infer_dtype(self):
         dtype = [(('Time of second largest S1 relative to main S1 in ns',
                    't_rel_second_s1'), np.int32)]
-        
+
         for s_i in [1,2]:
             dtype += [((f'Number of PMTs contributing to main S{s_i}',
                         f's{s_i}_n_channels'), np.int16),
@@ -626,15 +631,15 @@ class EventKryptonBasics(strax.LoopPlugin):
                 result[f'other_s{s_i}_n_channels'] = ss['n_channels'][other_i]
                 result[f'other_s{s_i}_range_50p_area'] = ss['range_50p_area'][other_i]
                 result[f'other_s{s_i}_index'] = s_indices[other_i]
-                    
+
                 if s_i == 1:
                     result['t_rel_second_s1'] = ss['time'][other_i] - ss['time'][main_i]
 
-                    
+
 
             index[f's{s_i}'] = s_indices[main_i]
             s = main_s[s_i] = ss[main_i]
-            
+
             result[f's{s_i}_n_channels'] = s['n_channels']
 
         return result

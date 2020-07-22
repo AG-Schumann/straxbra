@@ -2,6 +2,7 @@ import strax
 import numpy as np
 import os
 import pandas as pd
+from . import utils
 
 export, __all__ = strax.exporter()
 from . import plugins
@@ -59,9 +60,9 @@ class HtpcContext(strax.Context):
     std_dtypes = ('raw_records', 'records', 'peaks', 'events')
 
     def __init__(self, *args, **kwargs):
-        straxbra.utils.experiment = 'htpc'
-        straxbra.utils.n_pmts = 2
-        straxbra.utils.drift_length = 7.8  # in cm
+        utils.experiment = 'htpc'
+        utils.n_pmts = 2
+        utils.drift_length = 7.8  # in cm
 
         # add configs that must be (/you wanto to be) different from xebra dual phase tpc here
         configs = {                              # type       plugin       xebra_val
@@ -69,11 +70,11 @@ class HtpcContext(strax.Context):
                 'top_pmts': [1],                 # list   p_basics,p_pos    list(range(1,8))
                 'min_reconstruction_area': 1e10  #  this makes sure no pos-reconst. is attempted
                 }
-                
+
         experiment = kwargs.pop('experiment', 'htpc')
         standards = {'storage': os.path.join(storage_base_dir, experiment),
                      'register_all': plugins,
                      'config': update({'experiment': experiment}, configs)}
-        
+
         kwargs = update(standards, kwargs)
         super().__init__(*args, **kwargs)

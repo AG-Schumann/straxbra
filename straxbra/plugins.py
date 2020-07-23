@@ -233,10 +233,7 @@ class Peaks(strax.Plugin):
 @export
 @strax.takes_config(
         strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
-                     type=list, help="Which PMTs are in the top array"),
-        strax.Option('to_pe', track=False,
-                     default_by_run=utils.GetGains,
-                     help='PMT gains'),
+                     type=list, help="Which PMTs are in the top array")
 )
 class PeakBasics(strax.Plugin):
     """
@@ -283,8 +280,7 @@ class PeakBasics(strax.Plugin):
         r['max_pmt'] = np.argmax(p['area_per_channel'], axis=1)
         r['max_pmt_area'] = np.max(p['area_per_channel'], axis=1)
 
-        area_top = (p['area_per_channel'][:, self.config['top_pmts']]
-                    * self.config['to_pe'][self.config['top_pmts']].reshape(1, -1)).sum(axis=1)
+        area_top = p['area_per_channel'][:, self.config['top_pmts']].sum(axis=1)
         m = p['area'] > 0
         r['area_fraction_top'] = np.full_like(p, fill_value=np.nan, dtype=np.float32)
         r['area_fraction_top'][m] = area_top[m]/p['area'][m]

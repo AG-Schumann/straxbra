@@ -44,13 +44,13 @@ def GetGains(run_id):
 
     if doc is None:
         return np.ones(n_pmts)
-    run_start = ObjectId.from_datetime(doc['start'])
+    run_start = datetime.datetime.timestamp(doc['start'])
     try:
-        earlier_doc = list(db['pmt_gains'].find({'run' : {'$lte' : run_id}}).sort([('time', -1)]).limit(1))[0]
+        earlier_doc = list(db['pmt_gains'].find({'time' : {'$lte' : run_start}}).sort([('time', -1)]).limit(1))[0]
     except IndexError:
         return np.ones(n_pmts)
     try:
-        later_doc = list(db['pmt_gains'].find({'run' : {'$gte' : run_id}}).sort([('time', 1)]).limit(1))[0]
+        later_doc = list(db['pmt_gains'].find({'time' : {'$gte' : run_start}}).sort([('time', 1)]).limit(1))[0]
     except IndexError:
         return np.array(earlier_doc['adc_to_pe'])
     #earlier_cal = int(str(earlier_doc['_id'])[:8], 16)

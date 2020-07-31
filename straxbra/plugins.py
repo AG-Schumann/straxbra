@@ -2,7 +2,7 @@ import os
 import shutil
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy.ndimage.interpolation import shift
 
 import numba
 
@@ -382,6 +382,60 @@ class PeakClassification(strax.Plugin):
         r['type'][is_s2] = 2
 
         return r
+
+
+
+@export
+# @strax.takes_config(
+#         strax.Option('min_s2_area_se', default=1e4,
+#                      type=float, help="Min energy for a S2")
+# )
+class PeakIsolations(strax.Plugin):
+    """
+    For Single Electron Analysis.
+    """
+    __version__ = "0.0.1"
+    parallel = True
+    save_when = strax.SaveWhen.EXPLICIT
+    depends_on = ('peak_basics', )  # 'peak_positions', )
+    dtype = [
+        (('Start time of the peak (ns since unix epoch)',
+          'time'), np.int64),
+        (('End time of the peak (ns since unix epoch)',
+          'endtime'), np.int64),
+        (('Time since last peak',
+            'iso_left'), np.float32),
+        (('Time until next peak',
+            'iso_right'), np.float32),
+        (('Minimum of iso_right and iso_left',
+            'iso_min'), np.float32),
+        # (('Bool array of selected single electrons',
+        #     'se_selection'), np.bool_),
+        # (('Time since previous S2 from selection for single electron selection, else NaN',
+        #     'time_since_s2'), np.float32),
+    ]
+
+    def compute(self, peaks):
+        r = np.full_like(peaks, np.nan, dtype=self.dtype)
+
+        r['time'] = peaks['time']
+        r['endtime'] = peaks['endtime']
+
+        r['iso_left'] = r['time'] - shift(r['endtime'], 1, cval=np.nan)
+        r['iso_right'] = shift(r['time'], -1, cval=np.nan) - r['endtime']
+        r['iso_left'][0] = 0
+        r['iso_right'][-1] = 0
+        r['iso_min'] = np.minimum(r['iso_left'], r['iso_right'])
+
+        ### further extension would be to take all peaks within
+        ### a certain time window after a big s2 as potential SEs
+        ### functionality of "after_s2_mask"-function in peaktools.py
+        ### can be used.
+
+        # s2_selection = peaks['area'] > self.config['min_s2_area_se']
+
+        return r
+
 
 
 @strax.takes_config(

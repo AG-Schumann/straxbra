@@ -7,11 +7,16 @@ from . import utils
 export, __all__ = strax.exporter()
 from . import plugins
 
+
 def process_runlist(run_id):
     if isinstance(run_id, str) and len(run_id) > 7:
+        if len(run_id) % 5 != 0:
+            raise ValueError(
+                        'All Run_IDs have 5 digits (zero-padded).'
+                        'Expected len of multi-run call to be divisible by 5.')
         runs_list = []
-        for i in range(0, len(run_id), 4):
-            runs_list.append(f'{int(run_id[i:i+4], 16):05d}')
+        for i in range(0, len(run_id), 5):
+            runs_list.append(f'{int(run_id[i:i+5], 10):05d}')
         return runs_list
     return run_id
 
@@ -25,7 +30,9 @@ def update(d, u):
             d[k] = v
     return d
 
+
 storage_base_dir = '/data/storage/strax/cached/'
+
 
 @export
 class XebraContext(strax.Context):
@@ -51,7 +58,6 @@ class XebraContext(strax.Context):
     def get_df(self, run_id, *args, **kwargs) -> pd.DataFrame:
         run_id = process_runlist(run_id)
         return super().get_df(run_id, *args, **kwargs)
-
 
 
 @export

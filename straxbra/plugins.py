@@ -409,10 +409,14 @@ class PeakIsolations(strax.Plugin):
             'iso_right'), np.float32),
         (('Minimum of iso_right and iso_left',
             'iso_min'), np.float32),
-        # (('Bool array of selected single electrons',
-        #     'se_selection'), np.bool_),
-        # (('Time since previous S2 from selection for single electron selection, else NaN',
-        #     'time_since_s2'), np.float32),
+        (('Bool array of selected single electrons',
+            'se_selection'), np.bool_),
+        (('Time since previous S2 from selection for single electron selection, else NaN',
+            'time_since_s2'), np.float32),
+        (('SE x-position taken from previous large S2',
+            'x_se'), np.float32),
+        (('SE y-position taken from previous large S2',
+            'y_se'), np.float32),
     ]
 
     def compute(self, peaks):

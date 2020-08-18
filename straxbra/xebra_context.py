@@ -9,16 +9,25 @@ from . import plugins
 
 
 def process_runlist(run_id):
+    if isinstance(run_id, str):
+        _validate_id(run_id)
+    else:
+        for run in run_id:
+            _validate_id(run)
+
     if isinstance(run_id, str) and len(run_id) > 7:
-        if len(run_id) % 5 != 0:
-            raise ValueError(
-                        'All Run_IDs have 5 digits (zero-padded).'
-                        'Expected len of multi-run call to be divisible by 5.')
         runs_list = []
         for i in range(0, len(run_id), 5):
             runs_list.append(f'{int(run_id[i:i+5], 10):05d}')
         return runs_list
     return run_id
+
+
+def _validate_id(run_id):
+    if len(run_id) % 5 != 0:
+         raise ValueError(
+                    'All Run_IDs have 5 digits (zero-padded).'
+                    'Expected len of multi-run call to be divisible by 5.')
 
 
 def update(d, u):

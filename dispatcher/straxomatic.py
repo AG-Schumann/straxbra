@@ -6,6 +6,14 @@ import os
 import shutil
 from prepare_folder import prepare_folder
 
+
+experimental_setups = {
+    "xebra":straxbra.XebraContext(),
+    "xebra_hermetic_tpc":straxbra.HtpcContext(),
+}
+
+
+
 class SignalHandler:
     def __init__(self):
         self.run = True
@@ -17,13 +25,21 @@ class SignalHandler:
         self.run = False
 
 
-def straxinate(run_id, targets, max_workers):
+def straxinate(run_id, targets, max_workers, exp_setup="Xebra"):
+    print(f"  -->  experimental setup: {exp_setup}", flush = True)
+
     try:
-        straxbra.XebraContext().make(run_id, targets, max_workers=max_workers)
+
+        experimental_setups[exp_setup].make(run_id, targets, max_workers=max_workers)
+        print("done success", flush = True)
+        #straxbra.XebraContext().make(run_id, targets, max_workers=max_workers)
     except Exception as e:
         try:
-            straxbra.XebraContext().make(run_id, 'raw_records', max_workers=max_workers)
+            experimental_setups[exp_setup].make(run_id, 'raw_records', max_workers=max_workers)
+            print("done failed", flush = True)
+            #straxbra.XebraContext().make(run_id, 'raw_records', max_workers=max_workers)
         except Exception as ex:
+            print("failed misserably", flush = True)
             return f'Strax threw a {type(ex)}: {ex}'
         return ''
     return ''
@@ -76,9 +92,10 @@ def main(collection):
             collection.update_one({'_id' : doc['_id']},
                     {'$set' : {'status' : 'working',
                                'goal' : 'none', 'msg' : f'straxinating {run_id}'}})
+            #print(doc)
             print("straxinating", flush = True)
-            
-            msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']))
+                        
+            msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']), exp_setup=doc['experiment'])
         
             print("done straxinating:", flush = True)
         

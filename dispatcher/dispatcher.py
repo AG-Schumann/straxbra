@@ -337,16 +337,16 @@ class Dispatcher(object):
         self.current_run_id = run_id_rel
         self.SetStatus(msg='Run %s is live (%s)' % (run_id_rel, doc['mode']),
                 run_id=run_id_rel, goal='none', comment='')
-        if experiment == 'xebra':  # FIXME
+        if experiment in [ 'xebra','xebra_hermetic_tpc']:  # FIXME
             self.logger.debug('Notifying strax-o-matic')
             if doc['mode'] not in ['led','noise']:
                 targets = self.default_strax_targets
             else:
                 targets = 'raw_records'
             self.db['system_control'].update_one({'subsystem' : 'straxinator'},
-                    {'$set' : {'goal':run_id_rel, 'targets':targets, 'duration': doc['duration']}})
+                    {'$set' : {'goal':run_id_rel, 'targets':targets, 'duration': doc['duration'], 'experiment':experiment}})
         else:
-            self.logger.debug('Not straxing')
+            self.logger.debug(f'Not straxing for {experiment}')
         return
 
     def Stop(self, doc):

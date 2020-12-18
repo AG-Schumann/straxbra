@@ -86,7 +86,8 @@ def GetNChan(run_id):
 def GetDriftVelocity(run_id):
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
-        # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)
-        gate_mean =  rundoc['cathode_mean'] - 280 * rundoc['cathode_current_mean']
-        return 7.1e-4*((rundoc['cathode_mean'] - gate_mean)/drift_length)**0.15
+        if 'cathode_mean' in rundoc:
+            # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)
+            gate_mean =  rundoc['cathode_mean'] - 280 * rundoc['cathode_current_mean']
+            return 7.1e-4*((rundoc['cathode_mean'] - gate_mean)/drift_length)**0.15
     return 1.8e-3  # 500 V/cm

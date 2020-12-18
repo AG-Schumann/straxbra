@@ -75,7 +75,7 @@ class HtpcContext(strax.Context):
     std_dtypes = ('raw_records', 'records', 'peaks', 'events')
 
     def __init__(self, *args, **kwargs):
-        utils.experiment = 'htpc'
+        utils.experiment = 'xebra_hermetic_tpc'
         utils.n_pmts = 2
         utils.drift_length = 7.8  # in cm
 
@@ -88,8 +88,8 @@ class HtpcContext(strax.Context):
                 'nn_model': 'fake_htpc_model_not_actually_used_but_must_exist.h5'
                 }
 
-        experiment = kwargs.pop('experiment', 'htpc')
-        standards = {'storage': os.path.join(storage_base_dir, experiment),
+        experiment = kwargs.pop('experiment', utils.experiment)
+        standards = {'storage': os.path.join(storage_base_dir, 'htpc'),
                      'register_all': plugins,
                      'config': update({'experiment': experiment}, configs)}
 

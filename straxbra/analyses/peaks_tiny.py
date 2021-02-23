@@ -18,6 +18,7 @@ def plot_peaks(
             xlabel='t [us]',
             ylabel="Intensity [PE/ns]",
             figsize=(10, 4),
+            dpi=None,
             is_log=False,
             **kwargs):
     """Plots peak waveforms in given selection.
@@ -65,7 +66,7 @@ def plot_peaks(
     if t_reference is None:
         t_reference = peaks[0]['time']
 
-    plt.figure(figsize=figsize)
+    plt.figure(figsize=figsize, dpi=dpi)
     plt.axhline(0, c='k', alpha=0.2)
 
     for p in peaks:
@@ -104,6 +105,7 @@ def peak2dhist(
             xlog=True,
             ylog=True,
             figsize=(9, 5),
+            dpi=None,
             **kwargs):
 
     """Show 2D histogram of peaks versus area(x) and width(y) (default).
@@ -133,6 +135,7 @@ def peak2dhist(
     xlog       -- Whether or not to plot x-axis logarithmicly (default True)
     ylog       -- Whether or not to plot y-axis logarithmicly (default True)
     figsize    -- mpl figsize (default (9, 5), tuple)
+    dpi        -- dpi of plot. (default None = 100, int)
     kwargs     -- Any kwargs plt.pcolormesh accepts
     """
 
@@ -147,7 +150,7 @@ def peak2dhist(
 
     counts, _, _ = np.histogram2d(xvals, yvals, bins=[xbins, ybins])
 
-    plt.figure(figsize=figsize)
+    plt.figure(figsize=figsize, dpi=dpi)
     im = plt.pcolormesh(xbins, ybins, counts.T, cmap=cmap, norm=colors.LogNorm(), **kwargs)
 
     plt.title(title)

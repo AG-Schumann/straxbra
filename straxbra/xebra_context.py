@@ -95,3 +95,25 @@ class HtpcContext(strax.Context):
 
         kwargs = update(standards, kwargs)
         super().__init__(*args, **kwargs)
+
+
+@export
+class SinglePhaseContext(strax.Context):
+
+    std_dtypes = ('raw_records', 'records', 'peaks', 'events', 'event_info')
+
+    def __init__(self, *args, **kwargs):
+        utils.experiment = 'xebra_singlephase'
+        experiment = kwargs.pop('experiment', utils.experiment)
+        if 'config' not in kwargs:
+            kwargs['config'] = {'experiment' : experiment}
+        elif 'experiment' not in kwargs['config']:
+            kwargs['config']['experiment'] = experiment
+        if 'storage' not in kwargs:
+            kwargs['storage'] = os.path.join(storage_base_dir, "singlephase")
+        if 'register' not in kwargs and 'register_all' not in kwargs:
+            kwargs['register_all'] = plugins
+        super().__init__(*args, **kwargs)
+
+
+

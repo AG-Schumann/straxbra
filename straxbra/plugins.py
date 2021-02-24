@@ -296,15 +296,64 @@ class PeakBasics(strax.Plugin):
     strax.Option('min_reconstruction_area',
                  help='Skip reconstruction if area_top (PE) is less than this',
                  default=100),
+    strax.Option('position_weighting_power',
+                 help='Weight PMT positions by area seen to this power',
+                 default=1.0)
+)
+class PeakPositionsWeightedSum(strax.Plugin):
+    '''
+    Position Reconstruction weighted sum
+    '''
+    __version__ = "0.0.3"
+    dtype = [('x_weighted_sum', np.float32,
+              'Reconstructed S2 X position (mm) from weighted sum, uncorrected'),
+             ('y_weighted_sum', np.float32,
+              'Reconstructed S2 Y position (mm) from weighted sum, uncorrected')]
+    depends_on = ('peaks',)
+    parallel = False
+
+    def setup(self):
+        self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
+        self.pmt_mask[self.config['top_pmts']] = self.config['to_pe'][self.config['top_pmts']] > 0
+        pmt_x = np.array([-14.,-28,-14.,14.,28.,14.,0.])
+        pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])
+        self.pmt_positions = np.column_stack((pmt_x, pmt_y))
+
+    def compute(self, peaks):
+        # Keep large peaks only
+        peak_mask = peaks['area'] > self.config['min_reconstruction_area']
+        p = peaks['area_per_channel'][peak_mask, :]
+        p = p[:, self.pmt_mask]
+        
+        # Numpy built in weighted average only works with 1D weights
+        # Therefore do it manually
+        weights = p ** self.config['position_weighting_power']
+        pos = np.nansum(self.pmt_positions[np.newaxis,...] * weights[...,np.newaxis], axis=1)
+        pos /=  np.nansum(weights, axis=1)[...,np.newaxis]
+
+        result = np.full_like(peaks, np.nan, dtype=self.dtype)
+        result['x_weighted_sum'][peak_mask] = pos[:,0]
+        result['y_weighted_sum'][peak_mask] = pos[:,1]
+        return result
+
+@export
+@strax.takes_config(
+    strax.Option('to_pe', track=False, help='PMT gains',
+                     default_by_run=utils.GetGains),
+    strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
+                 type=list, help="Which PMTs are in the top array"),
+    strax.Option('min_reconstruction_area',
+                 help='Skip reconstruction if area_top (PE) is less than this',
+                 default=100),
     strax.Option('nn_model', type=str,
                  help='Filename of the NN for the position-reconstruction.' \
                       'File should be located in "/data/workspace/nn_models/".',
                  default='XeBRA_Position_Reconstruction_NN_Model_DualPhase_7TopPMTs.h5')
 
 )
-class PeakPositions(strax.Plugin):
+class PeakPositionsNN(strax.Plugin):
     '''
-    Position Reconstruction for XeBRA
+    Position Reconstruction with neural network
 
     Version 0.0.1: Weighted Sum
     Version 0.0.2: LRF
@@ -316,9 +365,9 @@ class PeakPositions(strax.Plugin):
     with Keras trained on Geant4 MC simulations.
     '''
     __version__ = "0.0.3"
-    dtype = [('x', np.float32,
+    dtype = [('x_nn', np.float32,
               'Reconstructed S2 X position (mm), uncorrected'),
-             ('y', np.float32,
+             ('y_nn', np.float32,
               'Reconstructed S2 Y position (mm), uncorrected')]
     depends_on = ('peaks',)
     parallel = True
@@ -350,6 +399,37 @@ class PeakPositions(strax.Plugin):
         ## Important: Factor 70 for rescaling label
         predictions = self.model_NN.predict(np.array([HFs_input]))[0]*70
         return predictions
+
+@export
+@export
+@strax.takes_config(
+    strax.Option("default_posrec_algorithm",
+                 help="default reconstruction algorithm that provides (x,y)",
+                 default="nn",
+                 )
+)
+class PeakPositions(strax.Plugin):
+    '''
+    Provides default positions to use for further processing.
+
+    Selects one of the position reconstrution plugins and uses its output
+    to provide 'x' and 'y', for use in further straxbra plugins.
+    '''
+    __version__ = "0.1.0"
+    dtype = [('x', np.float32,
+              'Reconstructed S2 X position (mm), uncorrected'),
+             ('y', np.float32,
+              'Reconstructed S2 Y position (mm), uncorrected')]
+    depends_on = ('peak_positions_nn','peak_positions_weighted_sum')
+    parallel = False
+
+    def compute(self, peaks):
+        algorithm = self.config['default_posrec_algorithm']
+        result = np.full_like(peaks, np.nan, dtype=self.dtype)
+        result['x'] = peaks[f'x_{algorithm}']
+        result['y'] = peaks[f'y_{algorithm}']
+        return result
+
 
 
 @export

@@ -19,6 +19,7 @@ from prepare_folder import prepare_folder
 import runs_todo_work
 import requests
 import json
+from straxomatic import experimental_setups
 
 
 class Scheduler(threading.Thread):
@@ -101,8 +102,8 @@ class Dispatcher(object):
         self.current_run_id = None
         self.armed_for_id = None
         self.default_strax_targets = 'event_positions'
-        
-        
+
+
     def __del__(self):
         self.close()
         return
@@ -145,47 +146,47 @@ class Dispatcher(object):
 
     def EndRun(self, run_id):
         self.logger.debug('Ending active run')
-        
-         
+
+
         doc = self.db['runs'].find_one({'end' : {'$exists' : 0}})
         # doc = self.db['runs'].find({'run_id' : {'$exists' : 1}, 'end' : {'$exists' : 0}}).sort({'run_id': 1}).limit(1)
-        
-        
-        
-        
+
+
+
+
         self.logger.debug('maybe found a document. Run_id: ' + str(doc["run_id"]))
-        
+
         if doc is None:
             self.logger.error('Invalid run error')
             self.SetStatus(msg='This error should not have happened, what did you do?')
             return
         updates = {}
-        
+
         # check if thread amount exists
         threads = doc['config']['processing_threads']['charon_reader_0']
         self.logger.debug('threads found in config and set to ' + str(threads))
-        
-        
+
+
         self.logger.debug('Waiting for daq to stop')
-        
+
         for _ in range(20):
             # it can take a bit for the daq to actually stop
             self.logger.debug("sleeping: " + str(_))
             time.sleep(1)
-            
+
             count_folders = len(os.listdir(self.raw_dir))
-            
+
             if requests.get("http://localhost/control/get_status").json()["daqstatus"]:
                 self.logger.debug("daq is now idle")
                 break
-            
+
             if 'THE_END' in os.listdir(self.raw_dir) and \
                     len(os.listdir(osp.join(self.raw_dir, 'THE_END'))) >= threads:
                 self.logger.debug("THE_END found")
                 break
-                
+
         self.logger.debug(str(count_folders) + " folders in folder)")
-        
+
         if(count_folders > 0):
             self.logger.debug('Daq stopped')
             first_chunk = os.listdir(osp.join(self.raw_dir, '000000'))[0]
@@ -221,34 +222,34 @@ class Dispatcher(object):
                 updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
             except:
                 self.logger.debug('failed')
-                
+
         self.logger.debug('Updating rundoc')
         self.db['runs'].update_one({'_id' : doc['_id']}, {'$set' : updates})
         self.logger.debug('waiting two seconds to continue')
-        
+
         self.logger.debug('waiting for straxinator to be ready')
-        
+
         f = open(self.raw_dir + "/DAQSPATCHER_OK", "x")
         f.write("OK")
         f.close
-        
+
         self.SetStatus(msg='waiting for straxinator to finish')
         int_straxinator_counter = 0
         while True:
             stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
             if stat_straxinator == "idle":
                 break
-            
+
             self.logger.debug("straxinator not ready yet ("+stat_straxinator+"|" + str(int_straxinator_counter) + ")")
             int_straxinator_counter += 1
             time.sleep(2)
-        
+
         self.SetStatus(msg='')
-        
+
         self.logger.debug('Run ended')
-        
-        
-        
+
+
+
         return
 
     def GetMeshVoltages(self, run_start, run_end):
@@ -285,7 +286,7 @@ class Dispatcher(object):
     def Arm(self, doc):
         self.logger.info('Preparing folder')
         prepare_folder(self.raw_dir)
-        
+
         self.logger.info('Arming for %s' % doc['mode'])
         cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
                 'command' : '', 'user' : doc['user']}
@@ -301,18 +302,18 @@ class Dispatcher(object):
         self.logger.debug('Inserting command doc')
         self.db['control'].insert_one(cmd_doc)
         self.SetStatus(msg='Arming for %s' % cmd_doc['mode'], goal='none')
-        
+
         self.logger.debug('Done arming')
-        
+
         return
 
     def Start(self, doc):
         if os.path.isfile(self.raw_dir + "/DAQSPATCHER_OK"):
             os.remove(self.raw_dir + "/DAQSPATCHER_OK")
             self.logger.info('removed ready to end file')
-            
-        
-        
+
+
+
         self.logger.info('Starting daq')
         cmd_doc = {'host' : ['charon_reader_0'], 'acknowledged' : [],
                 'command' : '', 'user' : doc['user']}
@@ -325,9 +326,9 @@ class Dispatcher(object):
             del cmd_doc['_id']
         self.logger.debug('Scheduling stop')
         cmd_doc['command'] = 'stop'
-        
+
         self.logger.debug('Duration: ' + str(doc['duration']))
-        
+
         self.stop_id = self.schedule.Schedule(delay=doc['duration'], func = partial(
             self.Stop, doc))
         self.logger.debug('Adding rundoc')
@@ -337,7 +338,8 @@ class Dispatcher(object):
         self.current_run_id = run_id_rel
         self.SetStatus(msg='Run %s is live (%s)' % (run_id_rel, doc['mode']),
                 run_id=run_id_rel, goal='none', comment='')
-        if experiment in [ 'xebra','xebra_hermetic_tpc']:  # FIXME
+        # if experiment in [ 'xebra','xebra_hermetic_tpc']:  # FIXME
+        if experiment in experimental_setups:  # FIXME??
             self.logger.debug('Notifying strax-o-matic')
             if doc['mode'] not in ['led','noise']:
                 targets = self.default_strax_targets
@@ -361,7 +363,7 @@ class Dispatcher(object):
             self.schedule.Unschedule(self.stop_id)
             self.stop_id = None
         self.SetStatus(status='online', goal='none', msg='')
-        
+
         self.logger.debug('Ending run')
         self.logger.debug('test0-0')
         self.EndRun(run_id=self.current_run_id)
@@ -375,7 +377,7 @@ class Dispatcher(object):
         #led_cal_duration = 60*3
         led_cal_duration = 60*1
         # led_cal_duration = 30
-        
+
         self.SendToLed('arm')
         if 'config_override' not in doc:
             doc['config_override'] = {}
@@ -383,9 +385,9 @@ class Dispatcher(object):
         self.Arm(doc)
         self.SetStatus(msg='Arming for LED calibration', goal='none')
         self.logger.debug('Waiting for daq to arm')
-        
+
         self.db['system_control'].update_one({'subsystem':'daqspatcher'}, {'$set':{"duration":led_cal_duration}})
-        
+
         status = self.DAQStatus()
         while status != 'armed':
             time.sleep(1)
@@ -407,16 +409,16 @@ class Dispatcher(object):
         self.SetStatus(active=True, status='online', msg='', goal='none')
         self.logger.info('Spatching')
         while self.sh.run:
-            
+
             if(runs_todo_work.bool_last_run_finished(self.db)):
                 stat_straxinator = self.db["system_control"].find_one({"subsystem": "straxinator"})["status"]
                 if not stat_straxinator == "idle":
                     self.logger.info('found ready to copy run from runs_todo, but straxinator is not ready')
-                    
+
                 else:
                     self.logger.info('found ready to copy run from runs_todo, waiting 2 seconds')
                     self.logger.info('  copying ...')
-                    
+
                     threading.Thread(
                         target = runs_todo_work.copy_next_run,
                         args=(
@@ -424,11 +426,11 @@ class Dispatcher(object):
                             self.logger
                         )
                     ).start()
-                    
+
                     self.logger.info('  thread started?')
-                    
-                
-                
+
+
+
             doc = self.db['system_control'].find_one({'subsystem' : 'daqspatcher'})
             daq_status = self.DAQStatus()
             goal = doc['goal']
@@ -437,7 +439,7 @@ class Dispatcher(object):
                 self.logger.info('  status: ' + str(daq_status))
                 self.logger.info('  goal:   ' + str(goal))
                 self.logger.info(" waiting for data")
-                
+
             if daq_status == 'offline':
                 time.sleep(5)
                 continue
@@ -467,7 +469,7 @@ class Dispatcher(object):
                 else:
                     self.SetStatus(msg=('Can\'t do LED calibration, daq is %s not '
                             'idle' % daq_status), goal='none')
-        
+
             time.sleep(1)
             # end of while loop
 

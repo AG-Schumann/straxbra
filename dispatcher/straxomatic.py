@@ -8,8 +8,9 @@ from prepare_folder import prepare_folder
 
 
 experimental_setups = {
-    "xebra":straxbra.XebraContext(),
-    "xebra_hermetic_tpc":straxbra.HtpcContext(),
+    "xebra": straxbra.XebraContext,
+    "xebra_hermetic_tpc": straxbra.HtpcContext,
+    "xebra_singlephase": straxbra.SinglePhaseContext,
 }
 
 
@@ -25,21 +26,20 @@ class SignalHandler:
         self.run = False
 
 
-def straxinate(run_id, targets, max_workers, exp_setup="Xebra"):
-    print(f"  -->  experimental setup: {exp_setup}", flush = True)
+def straxinate(run_id, targets, max_workers, exp_setup="xebra"):
+    print(f"  -->  experimental setup: {exp_setup}", flush=True)
 
     try:
-
-        experimental_setups[exp_setup].make(run_id, targets, max_workers=max_workers)
-        print("done success", flush = True)
+        experimental_setups[exp_setup]().make(run_id, targets, max_workers=max_workers)
+        print("All targets have been 'made' successfully.", flush=True)
         #straxbra.XebraContext().make(run_id, targets, max_workers=max_workers)
     except Exception as e:
         try:
-            experimental_setups[exp_setup].make(run_id, 'raw_records', max_workers=max_workers)
-            print("done failed", flush = True)
+            experimental_setups[exp_setup]().make(run_id, 'raw_records', max_workers=max_workers)
+            print("'Make' for all targets failed. raw_records have been 'made' successfully.", flush=True)
             #straxbra.XebraContext().make(run_id, 'raw_records', max_workers=max_workers)
         except Exception as ex:
-            print("failed misserably", flush = True)
+            print("'Make' failed misserably.", flush=True)
             return f'Strax threw a {type(ex)}: {ex}'
         return ''
     return ''
@@ -51,27 +51,26 @@ def main(collection):
             {'$set' : {'active' : True, 'status' : 'idle', 'msg' : ''}})
 
     raw_path = '/data/storage/strax/raw/live/'
-    
-    
-    
+
+
     bool_print = True
     while sh.run:
-        
-        if bool_print: 
-            print("waiting for new data", flush = True)
-        
-        doc = collection.find_one({'subsystem' : 'straxinator'})
+
+        if bool_print:
+            print("Waiting for new data.", flush=True)
+
+        doc = collection.find_one({'subsystem': 'straxinator'})
         if doc['goal'] == 'none':
             time.sleep(5)
             bool_print = False
             continue
-        
+
         bool_print = True
-        
+
         run_id = doc['goal']
-        
-        print("run_id " + str(run_id), flush = True)
-        
+
+        print("run_id " + str(run_id), flush=True)
+
         collection.update_one({'_id' : doc['_id']},
                 {'$set' : {'status' : 'working',
                            'goal' : 'none', 'msg' : 'waiting for data to be written'}})
@@ -81,42 +80,41 @@ def main(collection):
                 print("DAQSPATCHER seems to be ready, no data was written to disk")
                 break
             else:
-                print("no data found yet, wating for 2 seconds ("+str(int_slept).rjust(3)+")", flush = True)
+                print("no data found yet, wating for 2 seconds ("+str(int_slept).rjust(3)+")", flush=True)
                 time.sleep(2)
                 int_slept += 1
-        
+
         if os.path.isfile(raw_path + "DAQSPATCHER_OK"):
-            print("skipping straxinating", flush = True)
+            print("skipping straxinating", flush=True)
         else:
-            
+
             collection.update_one({'_id' : doc['_id']},
                     {'$set' : {'status' : 'working',
                                'goal' : 'none', 'msg' : f'straxinating {run_id}'}})
-            #print(doc)
-            print("straxinating", flush = True)
-                        
+            print("straxinating", flush=True)
+
             msg = straxinate(run_id, doc['targets'], max_workers=int(doc['max_workers']), exp_setup=doc['experiment'])
-        
-            print("done straxinating:", flush = True)
-        
+
+            print("done straxinating:", flush=True)
+
             if msg == '':
                 # at least raw records successfully produced, delete reader data
-                print("waiting till daqspatcher is ready", flush = True)
+                print("waiting till daqspatcher is ready", flush=True)
                 collection.update_one({'_id' : doc['_id']},
                     {'$set' : { 'msg' : 'waiting for dispatcher to be ready'}})
-            
+
                 while not os.path.isfile(raw_path + "DAQSPATCHER_OK"):
                     time.sleep(2)
-                    
-                
+
+
                 print(prepare_folder(raw_path))
-            
-            
+
+
         updates = {'status' : 'idle', 'msg' : msg}
         collection.update_one({'_id' : doc['_id']}, {'$set' : updates})
-        
-            
-        
+
+
+
     collection.update_one({'subsystem' : 'straxinator'},
             {'$set' : {'active' : False, 'status' : 'offline', 'msg' : ''}})
     return
@@ -125,13 +123,13 @@ if __name__ == '__main__':
     print("====================")
     print("starting straxinator")
     print("====================")
-    
+
     with MongoClient(os.environ['MONGO_DAQ_URI']) as client:
         try:
             experiment = os.environ['EXPERIMENT_NAME']
             main(client[f'{experiment}_daq']['system_control'])
             print("  experiment: " + experiment)
-        
+
         except Exception as e:
             print(f'Caught a {type(e)}: {e}')
 

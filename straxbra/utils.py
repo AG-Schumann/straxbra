@@ -16,7 +16,7 @@ class RunsDBInterface:
         db = __client['xebra_daq']
         self.experiment = experiment
 
-    def _GetRundoc(run_id):
+    def _GetRundoc(self, run_id):
         query = {
             'run_id' : min(int(run_id), MAX_RUN_ID),
             'experiment' : self.experiment
@@ -26,7 +26,7 @@ class RunsDBInterface:
         #    raise ValueError('No run with id %d' % run_id)
         return doc  # returns None if no doc
 
-    def GetRawPath(run_id):
+    def GetRawPath(self, run_id):
         doc = _GetRundoc(run_id)
         return '/data/storage/strax/raw/live'
         if doc is not None:
@@ -36,7 +36,7 @@ class RunsDBInterface:
                 pass
         return '/data/storage/strax/raw/unsorted/%s' % run_id
 
-    def GetReadoutThreads(run_id):
+    def GetReadoutThreads(self, run_id):
         doc = _GetRundoc(run_id)
         if doc is not None:
             try:
@@ -45,7 +45,7 @@ class RunsDBInterface:
                 pass
         return 2
 
-    def GetGains(run_id):
+    def GetGains(self, run_id):
         doc = _GetRundoc(run_id)
 
         if doc is None:
@@ -68,16 +68,16 @@ class RunsDBInterface:
                                     [earlier_doc['adc_to_pe'][ch], later_doc['adc_to_pe'][ch]])
                             for ch in range(len(earlier_doc['adc_to_pe']))])
 
-    def GetELifetime(run_id):
+    def GetELifetime(self, run_id):
         return 10e3 # 10 us
 
-    def GetRunStart(run_id):
+    def GetRunStart(self, run_id):
         rundoc = _GetRundoc(run_id)
         if rundoc is not None:
             return int(rundoc['start'].timestamp()*1e9)
         return int(time.time()*1e9)
 
-    def GetNChan(run_id):
+    def GetNChan(self, run_id):
         rundoc = _GetRundoc(run_id)
         if rundoc is not None:
             try:
@@ -89,7 +89,7 @@ class RunsDBInterface:
         return n_pmts
 
 
-    def GetDriftVelocity(run_id):
+    def GetDriftVelocity(self, run_id):
         rundoc = _GetRundoc(run_id)
         if rundoc is not None:
             if 'cathode_mean' in rundoc:

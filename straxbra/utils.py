@@ -5,11 +5,11 @@ import numpy as np
 import datetime
 import time
 
-class RunsDBInterface:
+n_pmts = 8
+drift_length = 7  # in cm
+MAX_RUN_ID = 999999  # because reasons
 
-    n_pmts = 8
-    drift_length = 7  # in cm
-    MAX_RUN_ID = 999999  # because reasons
+class RunsDBInterface:
 
     def __init__(self, experiment):
         __client = MongoClient(os.environ['MONGO_DAQ_URI'])

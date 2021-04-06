@@ -11,7 +11,7 @@ class RunsDBInterface:
     drift_length = 7  # in cm
     MAX_RUN_ID = 999999  # because reasons
 
-    def __init___(self, experiment):
+    def __init__(self, experiment):
         __client = MongoClient(os.environ['MONGO_DAQ_URI'])
         db = __client['xebra_daq']
         self.experiment = experiment

@@ -58,7 +58,7 @@ class XebraContext(strax.Context):
 
     def __init__(self, *args, **kwargs):
         kwargs['config'] = update(self.config, kwargs.pop('config', {}))
-        self.runs_db = utils.RunsDBInterface(self['config']['experiment'])
+        self.runs_db = utils.RunsDBInterface(kwargs['config']['experiment'])
 
         if 'storage' not in kwargs:
             kwargs['storage'] = self.storage

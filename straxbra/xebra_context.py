@@ -45,15 +45,23 @@ storage_base_dir = '/data/storage/strax/cached/'
 
 @export
 class XebraContext(strax.Context):
+    """Context for dual-phase xebra tpc
+
+    This is the context to use for standard dual-phase
+    operation of the xebra TPC. It is also the base from
+    which other contexts for different TPCs should inherit.
+    """
 
     std_dtypes = ('raw_records', 'records', 'peaks', 'events', 'event_info')
 
+    # Settings here override defaults but can themselves be
+    # overriden by argument config passed to __init__
+    config = {
+        'experiment': 'xebra'
+    }
+
     def __init__(self, *args, **kwargs):
-        experiment = kwargs.pop('experiment', 'xebra')
-        if 'config' not in kwargs:
-            kwargs['config'] = {'experiment' : experiment}
-        elif 'experiment' not in kwargs['config']:
-            kwargs['config']['experiment'] = experiment
+        config = update(config, kwargs.pop('config'), {})
         if 'storage' not in kwargs:
             kwargs['storage'] = os.path.join(storage_base_dir, experiment)
         if 'register' not in kwargs and 'register_all' not in kwargs:
@@ -70,50 +78,49 @@ class XebraContext(strax.Context):
 
 
 @export
-class HtpcContext(strax.Context):
+class HtpcContext(XebraContext):
+    """Context for hermetic tpc
+
+    Main differences from XebraContext:
+      - Two PMTs, one top and one bottom
+      - Different drift_length
+      - Updated strax tuning parameters (config)
+    """
 
     std_dtypes = ('raw_records', 'records', 'peaks', 'events')
+
+    # add configs that must be (/you wanto to be) different from xebra dual phase tpc here
+    config = {                              # type       plugin       xebra_val
+            'experiment' : 'xebra_hermetic_tpc',
+            'hit_threshold': 7,              #  int   records,peaks       30
+            'top_pmts': [1],                 # list   p_basics,p_pos    list(range(1,8))
+            'min_reconstruction_area': 1e10, #  this makes sure no pos-reconst. is attempted
+            # always use that model so the hash won't change if another exp changes the model:
+            'nn_model': 'fake_htpc_model_not_actually_used_but_must_exist.h5'
+            }
 
     def __init__(self, *args, **kwargs):
         utils.experiment = 'xebra_hermetic_tpc'
         utils.n_pmts = 2
         utils.drift_length = 7.8  # in cm
 
-        # add configs that must be (/you wanto to be) different from xebra dual phase tpc here
-        configs = {                              # type       plugin       xebra_val
-                'hit_threshold': 7,              #  int   records,peaks       30
-                'top_pmts': [1],                 # list   p_basics,p_pos    list(range(1,8))
-                'min_reconstruction_area': 1e10, #  this makes sure no pos-reconst. is attempted
-                # always use that model so the hash won't change if another exp changes the model:
-                'nn_model': 'fake_htpc_model_not_actually_used_but_must_exist.h5'
-                }
-
-        experiment = kwargs.pop('experiment', utils.experiment)
-        standards = {'storage': os.path.join(storage_base_dir, 'htpc'),
-                     'register_all': plugins,
-                     'config': update({'experiment': experiment}, configs)}
-
+        standards = {'storage': os.path.join(storage_base_dir, 'htpc')}
         kwargs = update(standards, kwargs)
         super().__init__(*args, **kwargs)
 
 
 @export
-class SinglePhaseContext(strax.Context):
+class SinglePhaseContext(XebraContext):
+    """Context for single phase operation of a xebra tpc
 
-    std_dtypes = ('raw_records', 'records', 'peaks', 'events', 'event_info')
+    Use this context to tune strax for single-phase operation.
+    Inherits basically everything from XebraContext.
+    """
+
+    config = {
+        'experiment': 'xebra_singlephase'
+    }
 
     def __init__(self, *args, **kwargs):
         utils.experiment = 'xebra_singlephase'
-        experiment = kwargs.pop('experiment', utils.experiment)
-        if 'config' not in kwargs:
-            kwargs['config'] = {'experiment' : experiment}
-        elif 'experiment' not in kwargs['config']:
-            kwargs['config']['experiment'] = experiment
-        if 'storage' not in kwargs:
-            kwargs['storage'] = os.path.join(storage_base_dir, "singlephase")
-        if 'register' not in kwargs and 'register_all' not in kwargs:
-            kwargs['register_all'] = plugins
         super().__init__(*args, **kwargs)
-
-
-

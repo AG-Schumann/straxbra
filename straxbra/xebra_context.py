@@ -39,10 +39,6 @@ def update(d, u):
             d[k] = v
     return d
 
-
-storage_base_dir = '/data/storage/strax/cached/'
-
-
 @export
 class XebraContext(strax.Context):
     """Context for dual-phase xebra tpc
@@ -59,11 +55,12 @@ class XebraContext(strax.Context):
     config = {
         'experiment': 'xebra'
     }
+    storage = '/data/storage/strax/cached/xebra'
 
     def __init__(self, *args, **kwargs):
         kwargs['config'] = update(self.config, kwargs.pop('config', {}))
         if 'storage' not in kwargs:
-            kwargs['storage'] = os.path.join(storage_base_dir, experiment)
+            kwargs['storage'] =
         if 'register' not in kwargs and 'register_all' not in kwargs:
             kwargs['register_all'] = plugins
         super().__init__(*args, **kwargs)
@@ -98,14 +95,13 @@ class HtpcContext(XebraContext):
             # always use that model so the hash won't change if another exp changes the model:
             'nn_model': 'fake_htpc_model_not_actually_used_but_must_exist.h5'
             }
+    storage = '/data/storage/strax/cached/htpc'
 
     def __init__(self, *args, **kwargs):
         utils.experiment = 'xebra_hermetic_tpc'
         utils.n_pmts = 2
         utils.drift_length = 7.8  # in cm
 
-        standards = {'storage': os.path.join(storage_base_dir, 'htpc')}
-        kwargs = update(standards, kwargs)
         super().__init__(*args, **kwargs)
 
 
@@ -120,6 +116,7 @@ class SinglePhaseContext(XebraContext):
     config = {
         'experiment': 'xebra_singlephase'
     }
+    storage = '/data/storage/strax/cached/xebra_singlephase'
 
     def __init__(self, *args, **kwargs):
         utils.experiment = 'xebra_singlephase'

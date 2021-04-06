@@ -5,7 +5,6 @@ import pandas as pd
 from . import utils
 
 export, __all__ = strax.exporter()
-from . import plugins
 
 
 def process_runlist(run_id):
@@ -59,13 +58,17 @@ class XebraContext(strax.Context):
 
     def __init__(self, *args, **kwargs):
         kwargs['config'] = update(self.config, kwargs.pop('config', {}))
+        self.runs_db = RunsDBInterface(self['config']['experiment'])
+
         if 'storage' not in kwargs:
             kwargs['storage'] = self.storage
         if 'register' not in kwargs and 'register_all' not in kwargs:
+            # Importing now allows us to access context in plugin options
+            # Not really sure if this is a good idea
+            from . import plugins
             kwargs['register_all'] = plugins
 
         super().__init__(*args, **kwargs)
-        runs_db = RunsDBInterface(self['config']['experiment'])
 
     def get_array(self, run_id, *args, **kwargs) -> np.ndarray:
         run_id = process_runlist(run_id)

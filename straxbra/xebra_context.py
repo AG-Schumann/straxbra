@@ -63,7 +63,9 @@ class XebraContext(strax.Context):
             kwargs['storage'] = self.storage
         if 'register' not in kwargs and 'register_all' not in kwargs:
             kwargs['register_all'] = plugins
+
         super().__init__(*args, **kwargs)
+        runs_db = RunsDBInterface(self['config']['experiment'])
 
     def get_array(self, run_id, *args, **kwargs) -> np.ndarray:
         run_id = process_runlist(run_id)
@@ -72,6 +74,8 @@ class XebraContext(strax.Context):
     def get_df(self, run_id, *args, **kwargs) -> pd.DataFrame:
         run_id = process_runlist(run_id)
         return super().get_df(run_id, *args, **kwargs)
+
+
 
 
 @export

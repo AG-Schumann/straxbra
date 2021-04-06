@@ -188,7 +188,7 @@ class Records(strax.Plugin):
         strax.Option('split_min_ratio', default=4,
                      help='Minimum prominence ratio to split peaks'),
         strax.Option('to_pe', track=False,
-                     default_by_run=utils.GetGains,
+                     default_by_run=self.runs_db.GetGains,
                      help='PMT gains'),
         strax.Option('n_channels', track=False, default_by_run=utils.GetNChan,
                      type=int, help='How many channels'),
@@ -324,7 +324,7 @@ class PeakPositionsWeightedSum(strax.Plugin):
         peak_mask = peaks['area'] > self.config['min_reconstruction_area']
         p = peaks['area_per_channel'][peak_mask, :]
         p = p[:, self.pmt_mask]
-        
+
         # Numpy built in weighted average only works with 1D weights
         # Therefore do it manually
         weights = p ** self.config['position_weighting_power']

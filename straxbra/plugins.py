@@ -2,8 +2,7 @@ import os
 import shutil
 
 import numpy as np
-from scipy.optimize import minimize
-import keras
+from scipy.ndimage.interpolation import shift
 
 import numba
 
@@ -18,17 +17,19 @@ adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
 @export
 @strax.takes_config(
     strax.Option('input_dir', type=str, track=False,
-                 default='/data/storage/strax/raw/live',
+                 default_by_run=utils.GetRawPath,
                  help='The directory with the data'),
     strax.Option('experiment', type=str, track=False, default='xebra',
                  help='Which experiment\'s data to load'),
     strax.Option('readout_threads', type=int, track=False,
                  default_by_run=utils.GetReadoutThreads,
                  help='How many readout threads were used'),
-    strax.Option('safe_break', default=1000,
+    strax.Option('safe_break', default=1000, track=False,
                  help='Time in ns between pulse starts indicating a safe break'),
-    strax.Option('do_breaks', default=True,
+    strax.Option('do_breaks', default=True, track=False,
                  help='Do the pulse breaking'),
+    strax.Option('erase_reader', default=False, track=False,
+                 help='Delete reader data after processing'),
     strax.Option('run_start', type=int, track=False,
                  default_by_run=utils.GetRunStart,
                  help='Start time of the run in ns'),
@@ -201,6 +202,7 @@ class Peaks(strax.Plugin):
     parallel = True
     rechunk_on_save = True
 
+
     def infer_dtype(self):
         return strax.peak_dtype(n_channels=self.config['n_channels'])
 
@@ -231,10 +233,7 @@ class Peaks(strax.Plugin):
 @export
 @strax.takes_config(
         strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
-                     type=list, help="Which PMTs are in the top array"),
-        strax.Option('to_pe', track=False,
-                     default_by_run=utils.GetGains,
-                     help='PMT gains'),
+                     type=list, help="Which PMTs are in the top array")
 )
 class PeakBasics(strax.Plugin):
     """
@@ -281,8 +280,7 @@ class PeakBasics(strax.Plugin):
         r['max_pmt'] = np.argmax(p['area_per_channel'], axis=1)
         r['max_pmt_area'] = np.max(p['area_per_channel'], axis=1)
 
-        area_top = (p['area_per_channel'][:, self.config['top_pmts']]
-                    * self.config['to_pe'][self.config['top_pmts']].reshape(1, -1)).sum(axis=1)
+        area_top = p['area_per_channel'][:, self.config['top_pmts']].sum(axis=1)
         m = p['area'] > 0
         r['area_fraction_top'] = np.full_like(p, fill_value=np.nan, dtype=np.float32)
         r['area_fraction_top'][m] = area_top[m]/p['area'][m]
@@ -297,11 +295,65 @@ class PeakBasics(strax.Plugin):
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
                  help='Skip reconstruction if area_top (PE) is less than this',
-                 default=100)
+                 default=100),
+    strax.Option('position_weighting_power',
+                 help='Weight PMT positions by area seen to this power',
+                 default=1.0)
 )
-class PeakPositions(strax.Plugin):
+class PeakPositionsWeightedSum(strax.Plugin):
     '''
-    Position Reconstruction for XeBRA
+    Position Reconstruction weighted sum
+    '''
+    __version__ = "0.0.3"
+    dtype = [('x_weighted_sum', np.float32,
+              'Reconstructed S2 X position (mm) from weighted sum, uncorrected'),
+             ('y_weighted_sum', np.float32,
+              'Reconstructed S2 Y position (mm) from weighted sum, uncorrected')]
+    depends_on = ('peaks',)
+    parallel = False
+
+    def setup(self):
+        self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
+        self.pmt_mask[self.config['top_pmts']] = self.config['to_pe'][self.config['top_pmts']] > 0
+        pmt_x = np.array([-14.,-28,-14.,14.,28.,14.,0.])
+        pmt_y = np.array([-28.,0.,28.,28.,0.,-28.,0.])
+        self.pmt_positions = np.column_stack((pmt_x, pmt_y))
+
+    def compute(self, peaks):
+        # Keep large peaks only
+        peak_mask = peaks['area'] > self.config['min_reconstruction_area']
+        p = peaks['area_per_channel'][peak_mask, :]
+        p = p[:, self.pmt_mask]
+        
+        # Numpy built in weighted average only works with 1D weights
+        # Therefore do it manually
+        weights = p ** self.config['position_weighting_power']
+        pos = np.nansum(self.pmt_positions[np.newaxis,...] * weights[...,np.newaxis], axis=1)
+        pos /=  np.nansum(weights, axis=1)[...,np.newaxis]
+
+        result = np.full_like(peaks, np.nan, dtype=self.dtype)
+        result['x_weighted_sum'][peak_mask] = pos[:,0]
+        result['y_weighted_sum'][peak_mask] = pos[:,1]
+        return result
+
+@export
+@strax.takes_config(
+    strax.Option('to_pe', track=False, help='PMT gains',
+                     default_by_run=utils.GetGains),
+    strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
+                 type=list, help="Which PMTs are in the top array"),
+    strax.Option('min_reconstruction_area',
+                 help='Skip reconstruction if area_top (PE) is less than this',
+                 default=100),
+    strax.Option('nn_model', type=str,
+                 help='Filename of the NN for the position-reconstruction.' \
+                      'File should be located in "/data/workspace/nn_models/".',
+                 default='XeBRA_Position_Reconstruction_NN_Model_DualPhase_7TopPMTs.h5')
+
+)
+class PeakPositionsNN(strax.Plugin):
+    '''
+    Position Reconstruction with neural network
 
     Version 0.0.1: Weighted Sum
     Version 0.0.2: LRF
@@ -309,24 +361,25 @@ class PeakPositions(strax.Plugin):
 
     Status: September 2019, Version 0.0.3
 
-    Position reconstruction for XeBRA using a Deep Feed Forward (DFF) Neural Network 
+    Position reconstruction for XeBRA using a Deep Feed Forward (DFF) Neural Network
     with Keras trained on Geant4 MC simulations.
     '''
     __version__ = "0.0.3"
-    dtype = [('x', np.float32,
+    dtype = [('x_nn', np.float32,
               'Reconstructed S2 X position (mm), uncorrected'),
-             ('y', np.float32,
+             ('y_nn', np.float32,
               'Reconstructed S2 Y position (mm), uncorrected')]
     depends_on = ('peaks',)
     parallel = True
 
     def setup(self):
+        import keras
         ## PMT mask - select top PMTs
         self.pmt_mask = np.zeros_like(self.config['to_pe'], dtype=np.bool)
         self.pmt_mask[self.config['top_pmts']] = np.ones_like(self.pmt_mask[self.config['top_pmts']])
         ## Load the trained model from corresponding HDF5 file
-        self.model_NN = keras.models.load_model('/data/workspace/nn_models/XeBRA_Position_Reconstruction_NN_Model_DualPhase_7TopPMTs.h5')
-        
+        self.model_NN = keras.models.load_model(os.path.join('/data/workspace/nn_models', self.config['nn_model']))
+
     def compute(self, peaks):
         ## Keep large peaks only
         results = np.full_like(peaks, np.nan, dtype=self.dtype)
@@ -346,6 +399,37 @@ class PeakPositions(strax.Plugin):
         ## Important: Factor 70 for rescaling label
         predictions = self.model_NN.predict(np.array([HFs_input]))[0]*70
         return predictions
+
+@export
+@export
+@strax.takes_config(
+    strax.Option("default_posrec_algorithm",
+                 help="default reconstruction algorithm that provides (x,y)",
+                 default="nn",
+                 )
+)
+class PeakPositions(strax.Plugin):
+    '''
+    Provides default positions to use for further processing.
+
+    Selects one of the position reconstrution plugins and uses its output
+    to provide 'x' and 'y', for use in further straxbra plugins.
+    '''
+    __version__ = "0.1.0"
+    dtype = [('x', np.float32,
+              'Reconstructed S2 X position (mm), uncorrected'),
+             ('y', np.float32,
+              'Reconstructed S2 Y position (mm), uncorrected')]
+    depends_on = ('peak_positions_nn','peak_positions_weighted_sum')
+    parallel = False
+
+    def compute(self, peaks):
+        algorithm = self.config['default_posrec_algorithm']
+        result = np.full_like(peaks, np.nan, dtype=self.dtype)
+        result['x'] = peaks[f'x_{algorithm}']
+        result['y'] = peaks[f'y_{algorithm}']
+        return result
+
 
 
 @export
@@ -378,6 +462,64 @@ class PeakClassification(strax.Plugin):
         r['type'][is_s2] = 2
 
         return r
+
+
+
+@export
+# @strax.takes_config(
+#         strax.Option('min_s2_area_se', default=1e4,
+#                      type=float, help="Min energy for a S2")
+# )
+class PeakIsolations(strax.Plugin):
+    """
+    For Single Electron Analysis.
+    """
+    __version__ = "0.0.1"
+    parallel = True
+    save_when = strax.SaveWhen.EXPLICIT
+    depends_on = ('peak_basics', )  # 'peak_positions', )
+    dtype = [
+        (('Start time of the peak (ns since unix epoch)',
+          'time'), np.int64),
+        (('End time of the peak (ns since unix epoch)',
+          'endtime'), np.int64),
+        (('Time since last peak',
+            'iso_left'), np.float32),
+        (('Time until next peak',
+            'iso_right'), np.float32),
+        (('Minimum of iso_right and iso_left',
+            'iso_min'), np.float32),
+        (('Bool array of selected single electrons',
+            'se_selection'), np.bool_),
+        (('Time since previous S2 from selection for single electron selection, else NaN',
+            'time_since_s2'), np.float32),
+        (('SE x-position taken from previous large S2',
+            'x_se'), np.float32),
+        (('SE y-position taken from previous large S2',
+            'y_se'), np.float32),
+    ]
+
+    def compute(self, peaks):
+        r = np.full_like(peaks, np.nan, dtype=self.dtype)
+
+        r['time'] = peaks['time']
+        r['endtime'] = peaks['endtime']
+
+        r['iso_left'] = r['time'] - shift(r['endtime'], 1, cval=np.nan)
+        r['iso_right'] = shift(r['time'], -1, cval=np.nan) - r['endtime']
+        r['iso_left'][0] = 0
+        r['iso_right'][-1] = 0
+        r['iso_min'] = np.minimum(r['iso_left'], r['iso_right'])
+
+        ### further extension would be to take all peaks within
+        ### a certain time window after a big s2 as potential SEs
+        ### functionality of "after_s2_mask"-function in peaktools.py
+        ### can be used.
+
+        # s2_selection = peaks['area'] > self.config['min_s2_area_se']
+
+        return r
+
 
 
 @strax.takes_config(
@@ -569,6 +711,76 @@ class EventBasics(strax.LoopPlugin):
 
 
 @export
+class EventKryptonBasics(strax.LoopPlugin):
+    """Stolen from EventBasics and modified."""
+    __version__ = '0.0.1'
+    depends_on = ('events',
+                  'peak_basics', 'peak_classification',
+                  'peak_positions', 'n_competing')
+
+    def infer_dtype(self):
+        dtype = [(('Time of second largest S1 relative to main S1 in ns',
+                   't_rel_second_s1'), np.int32)]
+
+        for s_i in [1,2]:
+            dtype += [((f'Number of PMTs contributing to main S{s_i}',
+                        f's{s_i}_n_channels'), np.int16),
+                      ((f'Width (in ns) of the central 50% area of other largest S{s_i}',
+                        f'other_s{s_i}_range_50p_area'), np.float32),
+                      ((f'Number of PMTs contributing to other largest S{s_i}',
+                        f'other_s{s_i}_n_channels'), np.int16),
+                      ((f'Largest other S{s_i} peak index',
+                        f'other_s{s_i}_index'), np.int32)
+                     ]
+
+        return dtype
+
+    def compute_loop(self, event, peaks):
+        result = {'t_rel_second_s1' : 0}
+        if not len(peaks):
+            return result
+
+        main_s = dict()
+        index = dict()
+        for s_i in [2, 1]:
+            s_mask = peaks['type'] == s_i
+
+            # For determining the main S1, remove all peaks
+            # after the main S2 (if there was one)
+            # This is why S2 finding happened first
+            if s_i == 1 and index['s2'] != -1:
+                s_mask &= peaks['time'] < main_s[2]['time']
+
+            ss = peaks[s_mask]
+            s_indices = np.arange(len(peaks))[s_mask]
+
+            if not len(ss):
+                index[f's{s_i}'] = -1
+                continue
+
+            main_i = np.argmax(ss['area'])
+
+            if ss['n_competing'][main_i]>0 and len(ss['area'])>1:
+                other_i = np.argsort(ss['area'])[-2]
+                result[f'other_s{s_i}_n_channels'] = ss['n_channels'][other_i]
+                result[f'other_s{s_i}_range_50p_area'] = ss['range_50p_area'][other_i]
+                result[f'other_s{s_i}_index'] = s_indices[other_i]
+
+                if s_i == 1:
+                    result['t_rel_second_s1'] = ss['time'][other_i] - ss['time'][main_i]
+
+
+
+            index[f's{s_i}'] = s_indices[main_i]
+            s = main_s[s_i] = ss[main_i]
+
+            result[f's{s_i}_n_channels'] = s['n_channels']
+
+        return result
+
+
+
+@export
 @strax.takes_config(
     strax.Option(
         name='electron_drift_velocity',
@@ -604,6 +816,7 @@ class EventPositions(strax.Plugin):
                       theta=np.arctan2(orig_pos[:, 1], orig_pos[:, 0]))
 
         return result
+
 
 
 @strax.takes_config(

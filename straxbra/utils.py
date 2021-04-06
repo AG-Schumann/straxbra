@@ -9,6 +9,8 @@ import time
 __client = MongoClient(os.environ['MONGO_DAQ_URI'])
 db = __client['xebra_daq']
 experiment = 'xebra'
+n_pmts = 8
+drift_length = 7  # in cm
 MAX_RUN_ID = 999999  # because reasons
 
 def _GetRundoc(run_id):
@@ -39,19 +41,22 @@ def GetReadoutThreads(run_id):
 
 def GetGains(run_id):
     doc = _GetRundoc(run_id)
+
     if doc is None:
-        return np.ones(8)
-    run_start = ObjectId.from_datetime(doc['start'])
+        return np.ones(n_pmts)
+    run_start = datetime.datetime.timestamp(doc['start'])
     try:
-        earlier_doc = list(db['pmt_gains'].find({'_id' : {'$lte' : run_start}}).sort([('_id', -1)]).limit(1))[0]
+        earlier_doc = list(db['pmt_gains'].find({'time' : {'$lte' : run_start}}).sort([('time', -1)]).limit(1))[0]
     except IndexError:
-        return np.ones(8)
+        return np.ones(n_pmts)
     try:
-        later_doc = list(db['pmt_gains'].find({'_id' : {'$gte' : run_start}}).sort([('_id', 1)]).limit(1))[0]
+        later_doc = list(db['pmt_gains'].find({'time' : {'$gte' : run_start}}).sort([('time', 1)]).limit(1))[0]
     except IndexError:
         return np.array(earlier_doc['adc_to_pe'])
-    earlier_cal = int(str(earlier_doc['_id'])[:8], 16)
-    later_cal = int(str(later_doc['_id'])[:8], 16)
+    #earlier_cal = int(str(earlier_doc['_id'])[:8], 16)
+    #later_cal = int(str(later_doc['_id'])[:8], 16)
+    earlier_cal = earlier_doc['time']
+    later_cal = later_doc['time']
     return np.array([np.interp(doc['start'].timestamp(),
                                 [earlier_cal,later_cal],
                                 [earlier_doc['adc_to_pe'][ch], later_doc['adc_to_pe'][ch]])
@@ -74,12 +79,15 @@ def GetNChan(run_id):
             return len(rundoc['config']['channels'][str(board_id)])
         except KeyError:
             pass
-    return 8
+
+    return n_pmts
+
 
 def GetDriftVelocity(run_id):
-    drift_length = 7  # cm
     rundoc = _GetRundoc(run_id)
     if rundoc is not None:
-        # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)
-        return 7.1e-4*(rundoc['cathode_mean']/drift_length)**0.15
+        if 'cathode_mean' in rundoc:
+            # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)
+            gate_mean =  rundoc['cathode_mean'] - 280 * rundoc['cathode_current_mean']
+            return 7.1e-4*((rundoc['cathode_mean'] - gate_mean)/drift_length)**0.15
     return 1.8e-3  # 500 V/cm

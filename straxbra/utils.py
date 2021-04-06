@@ -13,7 +13,7 @@ class RunsDBInterface:
 
     def __init__(self, experiment):
         __client = MongoClient(os.environ['MONGO_DAQ_URI'])
-        db = __client['xebra_daq']
+        self.db = __client['xebra_daq']
         self.experiment = experiment
 
     def _GetRundoc(self, run_id):
@@ -21,7 +21,7 @@ class RunsDBInterface:
             'run_id' : min(int(run_id), MAX_RUN_ID),
             'experiment' : self.experiment
         }
-        doc = db['runs'].find_one(query)
+        doc = self.db['runs'].find_one(query)
         #if doc is None:
         #    raise ValueError('No run with id %d' % run_id)
         return doc  # returns None if no doc

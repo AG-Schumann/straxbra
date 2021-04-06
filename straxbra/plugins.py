@@ -13,16 +13,19 @@ export, __all__ = strax.exporter()
 # V/adc * (sec/sample) * (1/resistance) * (1/electron charge) * (amplification)
 adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
 
+# Create a Runs DB interface to use for default config options
+# These should probably all be overridden by any useful context.
+runs_db = utils.RunsDBInterface('xebra')
 
 @export
 @strax.takes_config(
     strax.Option('input_dir', type=str, track=False,
-                 default_by_run=utils.GetRawPath,
+                 default_by_run=runs_db.GetRawPath,
                  help='The directory with the data'),
     strax.Option('experiment', type=str, track=False, default='xebra',
                  help='Which experiment\'s data to load'),
     strax.Option('readout_threads', type=int, track=False,
-                 default_by_run=utils.GetReadoutThreads,
+                 default_by_run=runs_db.GetReadoutThreads,
                  help='How many readout threads were used'),
     strax.Option('safe_break', default=1000, track=False,
                  help='Time in ns between pulse starts indicating a safe break'),
@@ -31,7 +34,7 @@ adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
     strax.Option('erase_reader', default=False, track=False,
                  help='Delete reader data after processing'),
     strax.Option('run_start', type=int, track=False,
-                 default_by_run=utils.GetRunStart,
+                 default_by_run=runs_db.GetRunStart,
                  help='Start time of the run in ns'),
 )
 class DAQReader(strax.ParallelSourcePlugin):
@@ -127,7 +130,7 @@ class DAQReader(strax.ParallelSourcePlugin):
 @export
 @strax.takes_config(
         strax.Option('to_pe', track=False,
-                     default_by_run=utils.GetGains,
+                     default_by_run=runs_db.GetGains,
                      help='PMT gains'),
         strax.Option('min_gain', track=False, type=float,
                      default=1e5, help='Minimum PMT gain'),
@@ -190,7 +193,7 @@ class Records(strax.Plugin):
         strax.Option('to_pe', track=False,
                      default_by_run=self.runs_db.GetGains,
                      help='PMT gains'),
-        strax.Option('n_channels', track=False, default_by_run=utils.GetNChan,
+        strax.Option('n_channels', track=False, default_by_run=runs_db.GetNChan,
                      type=int, help='How many channels'),
 )
 class Peaks(strax.Plugin):
@@ -290,7 +293,7 @@ class PeakBasics(strax.Plugin):
 @export
 @strax.takes_config(
     strax.Option('to_pe', track=False, help='PMT gains',
-                     default_by_run=utils.GetGains),
+                     default_by_run=runs_db.GetGains),
     strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
@@ -339,7 +342,7 @@ class PeakPositionsWeightedSum(strax.Plugin):
 @export
 @strax.takes_config(
     strax.Option('to_pe', track=False, help='PMT gains',
-                     default_by_run=utils.GetGains),
+                     default_by_run=runs_db.GetGains),
     strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
                  type=list, help="Which PMTs are in the top array"),
     strax.Option('min_reconstruction_area',
@@ -785,7 +788,7 @@ class EventKryptonBasics(strax.LoopPlugin):
     strax.Option(
         name='electron_drift_velocity',
         help='Vertical electron drift velocity in mm/ns',
-        default_by_run=utils.GetDriftVelocity
+        default_by_run=runs_db.GetDriftVelocity
     ),
 )
 class EventPositions(strax.Plugin):
@@ -823,7 +826,7 @@ class EventPositions(strax.Plugin):
     strax.Option(
         'electron_lifetime',
         help="Electron lifetime (ns)",
-        default_by_run=utils.GetELifetime)
+        default_by_run=runs_db.GetELifetime)
 )
 class CorrectedAreas(strax.Plugin):
     depends_on = ['event_basics', 'event_positions']

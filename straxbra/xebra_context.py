@@ -4,6 +4,8 @@ import os
 import pandas as pd
 from . import utils
 
+from . import plugins
+
 export, __all__ = strax.exporter()
 
 
@@ -60,12 +62,21 @@ class XebraContext(strax.Context):
         kwargs['config'] = update(self.config, kwargs.pop('config', {}))
         self.runs_db = utils.RunsDBInterface(kwargs['config']['experiment'])
 
+        standard_configs = {
+            'input_dir': self.runs_db.GetRawPath,
+            'readout_threads': self.runs_db.GetReadoutThreads,
+            'run_start': self.runs_db.GetRunStart,
+            'to_pe': self.runs_db.GetGains,
+            'n_channels': self.runs_db.GetNChan,
+            'electron_drift_velocity': self.runs_db.GetDriftVelocity,
+            'electron_lifetime': self.runs_db.GetELifetime
+        }
+        kwargs['config'] = update(standard_configs, kwargs['config'])
+        
+
         if 'storage' not in kwargs:
             kwargs['storage'] = self.storage
         if 'register' not in kwargs and 'register_all' not in kwargs:
-            # Importing now allows us to access context in plugin options
-            # Not really sure if this is a good idea
-            from . import plugins
             kwargs['register_all'] = plugins
 
         super().__init__(*args, **kwargs)

@@ -191,7 +191,7 @@ class Records(strax.Plugin):
         strax.Option('split_min_ratio', default=4,
                      help='Minimum prominence ratio to split peaks'),
         strax.Option('to_pe', track=False,
-                     default_by_run=self.runs_db.GetGains,
+                     default_by_run=runs_db.GetGains,
                      help='PMT gains'),
         strax.Option('n_channels', track=False, default_by_run=runs_db.GetNChan,
                      type=int, help='How many channels'),

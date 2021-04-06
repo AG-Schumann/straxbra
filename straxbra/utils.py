@@ -52,11 +52,19 @@ class RunsDBInterface:
             return np.ones(n_pmts)
         run_start = datetime.datetime.timestamp(doc['start'])
         try:
-            earlier_doc = list(self.db['pmt_gains'].find({'time' : {'$lte' : run_start}}).sort([('time', -1)]).limit(1))[0]
+            query = {
+                'time' : {'$lte' : run_start},
+                'experiment' : self.experiment
+            }
+            earlier_doc = list(self.db['pmt_gains'].find(query).sort([('time', -1)]).limit(1))[0]
         except IndexError:
             return np.ones(n_pmts)
         try:
-            later_doc = list(self.db['pmt_gains'].find({'time' : {'$gte' : run_start}}).sort([('time', 1)]).limit(1))[0]
+            query = {
+                'time' : {'$gte' : run_start},
+                'experiment' : self.experiment
+            }
+            later_doc = list(self.db['pmt_gains'].find().sort([('time', 1)]).limit(1))[0]
         except IndexError:
             return np.array(earlier_doc['adc_to_pe'])
         #earlier_cal = int(str(earlier_doc['_id'])[:8], 16)

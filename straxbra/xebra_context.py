@@ -60,7 +60,7 @@ class XebraContext(strax.Context):
     def __init__(self, *args, **kwargs):
         kwargs['config'] = update(self.config, kwargs.pop('config', {}))
         if 'storage' not in kwargs:
-            kwargs['storage'] =
+            kwargs['storage'] = self.storage
         if 'register' not in kwargs and 'register_all' not in kwargs:
             kwargs['register_all'] = plugins
         super().__init__(*args, **kwargs)

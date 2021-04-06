@@ -61,7 +61,7 @@ class XebraContext(strax.Context):
     }
 
     def __init__(self, *args, **kwargs):
-        config = update(config, kwargs.pop('config'), {})
+        kwargs['config'] = update(self.config, kwargs.pop('config'), {})
         if 'storage' not in kwargs:
             kwargs['storage'] = os.path.join(storage_base_dir, experiment)
         if 'register' not in kwargs and 'register_all' not in kwargs:

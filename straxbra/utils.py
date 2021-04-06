@@ -27,7 +27,7 @@ class RunsDBInterface:
         return doc  # returns None if no doc
 
     def GetRawPath(self, run_id):
-        doc = _GetRundoc(run_id)
+        doc = self._GetRundoc(run_id)
         return '/data/storage/strax/raw/live'
         if doc is not None:
             try:
@@ -37,7 +37,7 @@ class RunsDBInterface:
         return '/data/storage/strax/raw/unsorted/%s' % run_id
 
     def GetReadoutThreads(self, run_id):
-        doc = _GetRundoc(run_id)
+        doc = self._GetRundoc(run_id)
         if doc is not None:
             try:
                 return doc['config']['processing_threads']['charon_reader_0']
@@ -46,7 +46,7 @@ class RunsDBInterface:
         return 2
 
     def GetGains(self, run_id):
-        doc = _GetRundoc(run_id)
+        doc = self._GetRundoc(run_id)
 
         if doc is None:
             return np.ones(n_pmts)
@@ -72,13 +72,13 @@ class RunsDBInterface:
         return 10e3 # 10 us
 
     def GetRunStart(self, run_id):
-        rundoc = _GetRundoc(run_id)
+        rundoc = self._GetRundoc(run_id)
         if rundoc is not None:
             return int(rundoc['start'].timestamp()*1e9)
         return int(time.time()*1e9)
 
     def GetNChan(self, run_id):
-        rundoc = _GetRundoc(run_id)
+        rundoc = self._GetRundoc(run_id)
         if rundoc is not None:
             try:
                 board_id = rundoc['config']['boards'][0]['board']
@@ -90,7 +90,7 @@ class RunsDBInterface:
 
 
     def GetDriftVelocity(self, run_id):
-        rundoc = _GetRundoc(run_id)
+        rundoc = self._GetRundoc(run_id)
         if rundoc is not None:
             if 'cathode_mean' in rundoc:
                 # from Jelle's thesis: v (mm/us) = 0.71*field**0.15 (V/cm)

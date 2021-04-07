@@ -216,7 +216,7 @@ class Dispatcher(object):
 
 
 
-        if doc['mode'] not in ['led', 'noise']:
+        if doc['mode'] not in ['led', 'led_hermetic_tpc', 'noise']:
             self.logger.debug('Getting SC data')
             try:
                 updates.update(self.GetMeshVoltages(doc['start'], updates['end']))
@@ -341,7 +341,7 @@ class Dispatcher(object):
         # if experiment in [ 'xebra','xebra_hermetic_tpc']:  # FIXME
         if experiment in experimental_setups:  # FIXME??
             self.logger.debug('Notifying strax-o-matic')
-            if doc['mode'] not in ['led','noise']:
+            if doc['mode'] not in ['led', 'led_hermetic_tpc', 'noise']:
                 targets = self.default_strax_targets
             else:
                 targets = 'raw_records'

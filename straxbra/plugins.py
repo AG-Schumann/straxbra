@@ -780,6 +780,156 @@ class EventKryptonBasics(strax.LoopPlugin):
 
 
 
+
+@export
+class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
+    """Stolen from Events_Krypton_basics and modified."""
+    __version__ = '0.0.1'
+    depends_on = ('events',
+                  'peak_basics', 'peak_classification',
+                  'peak_positions', 'n_competing')
+
+    def infer_dtype(self):
+        dtype = [
+                (('first/last peaks start time',
+                   'first_and_last_peak_time'), np.int64, (2, )),
+                
+                (('first S1 like peak area in PE',
+                   's1_1_area'), np.float32),
+                (('second S1 like peak area in PE',
+                   's1_2_area'), np.float32),
+                (('first S1 like peak width in PE',
+                   's1_1_width'), np.float32),
+                (('second S1 like peak width in PE',
+                   's1_2_width'), np.float32),
+                (('time difference of s1 like peaks',
+                   'dt_s1s'), np.float32),
+                (('area ratio of both s1 likes',
+                   'ratio_area_s1s'), np.float32),
+                
+                
+                
+                (('id of s1 and largest peaks',
+                   'peaks_ids'), np.int64,(5,)),
+                
+                
+                (('largest non s1-like peak area in PE',
+                   'largest_peak_area'), np.float32),
+                (('largest non s1-like peak width in ns',
+                   'largest_peak_width'), np.float32),
+                (('time difference of first s1 like to largest non s1-like peak',
+                   'dt_s11_largest'), np.float32),
+                
+                (('largest non peak area in PE',
+                   'largest_peak_all_area'), np.float32),
+                (('largest peak width in ns',
+                   'largest_peak_all_width'), np.float32),
+                (('time difference of first s1 like to largest peak',
+                   'dt_s11_largest_peak_all'), np.float32),
+                
+                (('largest peak is not S1 like',
+                   'largest_peak_is_not_S1_like'), np.bool),
+                
+                (('second largest non s1-like peak area in PE',
+                   'second_largest_peak_area'), np.float32),
+                (('second largest non s1-like width in ns',
+                   'second_largest_peak_width'), np.float32),
+                (('time difference of largest non s1 like peaks',
+                   'dt_largest'), np.float32),
+                
+                
+                
+                
+                   
+                ]
+
+        return dtype
+
+    def compute_loop(self, event, peaks):
+        result = {}
+        if not len(peaks):
+            return result
+
+        result["first_and_last_peak_time"] = [peaks["time"][0], peaks["time"][-1]]
+        
+        # all the s1 like oprtations
+        peak_ids_ss = np.nonzero(((peaks["area"] > 30) & (peaks["area"] < 600)))[0]
+        peaks_ss = peaks[peak_ids_ss]
+        
+        diff_time = np.array([
+                p2["time"]-p1["time"]
+                for p1, p2
+                in zip(peaks_ss[:-1], peaks_ss[1:])
+        ])
+        # s1s must be between 1500 ns (10 half-lifes)
+        ids_s1_test = np.nonzero(diff_time < 1000)[0]
+        if len(ids_s1_test) < 1:
+            return(result)
+        
+        
+        id_first_s1  = peak_ids_ss[min(ids_s1_test)]
+        id_second_s1  = peak_ids_ss[min(ids_s1_test) + 1]
+
+
+        result["s1_1_area"] = peaks[id_first_s1]["area"]
+        result["s1_2_area"] = peaks[id_second_s1]["area"]
+        result["s1_1_width"] = peaks[id_first_s1]["range_50p_area"]
+        result["s1_2_width"] = peaks[id_second_s1]["range_50p_area"]
+        result["dt_s1s"] = peaks[id_second_s1]["time"]- peaks[id_first_s1]["time"]
+        result["ratio_area_s1s"] = peaks[id_first_s1]["area"] / peaks[id_second_s1]["area"]
+
+
+        peak_ids_by_area = np.argsort(peaks["area"])
+        
+        id_largest_peak_all = peak_ids_by_area[-1]
+        
+        result["largest_peak_all_area"] = peaks[id_largest_peak_all]["area"]
+        result["largest_peak_all_width"] = peaks[id_largest_peak_all]["range_50p_area"]
+        result["dt_s11_largest_peak_all"] = peaks[id_largest_peak_all]["time"] - peaks[id_first_s1]["time"]
+        
+        
+        
+        peak_ids_by_area = [id for id in peak_ids_by_area if id not in [id_first_s1, id_second_s1]]
+    
+        result["peaks_ids"] = [id_first_s1, id_second_s1, -1, -1, id_largest_peak_all]
+    
+        if len(peak_ids_by_area) < 1:
+            return(result)
+        
+        
+        id_largest_s = peak_ids_by_area[-1]
+        
+        result["largest_peak_is_not_S1_like"] = (id_largest_peak_all != id_first_s1)
+        
+        
+        
+        
+        result["dt_s11_largest"] = peaks[id_largest_s]["time"] - peaks[id_first_s1]["time"]
+        result["largest_peak_area"] = peaks[id_largest_s]["area"]
+        result["largest_peak_width"] = peaks[id_largest_s]["range_50p_area"]
+        
+
+        if len(peak_ids_by_area) == 1:
+            result["peaks_ids"] = [id_first_s1, id_second_s1, id_largest_s, -1, id_largest_peak_all]
+            return(result)
+        
+        
+        id_second_largest_s = peak_ids_by_area[-2]
+        result["peaks_ids"] = [id_first_s1, id_second_s1, id_largest_s, id_second_largest_s, id_largest_peak_all]
+        result["second_largest_peak_area"] = peaks[id_second_largest_s]["area"]
+        result["second_largest_peak_width"] = peaks[id_second_largest_s]["range_50p_area"]
+        result["dt_largest"] = peaks[id_largest_s]["time"] - peaks[id_second_largest_s]["time"]
+        
+        
+        
+        
+        
+        return result
+
+
+
+
+
 @export
 @strax.takes_config(
     strax.Option(

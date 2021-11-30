@@ -782,6 +782,17 @@ class EventKryptonBasics(strax.LoopPlugin):
 
 
 @export
+@strax.takes_config(
+    strax.Option('sp_krypton_s1_area_min', default=30,
+                 help='minimum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_s1_area_max', default=800,
+                 help='maximum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_s1s_dt_max', default=2500,
+                 help='maximum time difference beetween 2 peaks '
+                      'to be considered two S1s'),
+)
+
+@export
 class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
     """Stolen from Events_Krypton_basics and modified."""
     __version__ = '0.0.1'
@@ -853,7 +864,7 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         result["first_and_last_peak_time"] = [peaks["time"][0], peaks["time"][-1]]
         
         # all the s1 like oprtations
-        peak_ids_ss = np.nonzero(((peaks["area"] > 30) & (peaks["area"] < 600)))[0]
+        peak_ids_ss = np.nonzero(((peaks["area"] > self.config["sp_krypton_s1_area_min"]) & (peaks["area"] < self.config["sp_krypton_s1_area_max"])))[0]
         peaks_ss = peaks[peak_ids_ss]
         
         diff_time = np.array([
@@ -861,8 +872,8 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                 for p1, p2
                 in zip(peaks_ss[:-1], peaks_ss[1:])
         ])
-        # s1s must be between 1500 ns (10 half-lifes)
-        ids_s1_test = np.nonzero(diff_time < 1000)[0]
+        # s1s must be between 2500 ns (~16 half-lifes)
+        ids_s1_test = np.nonzero(diff_time < self.config["sp_krypton_s1s_dt_max"])[0]
         if len(ids_s1_test) < 1:
             return(result)
         

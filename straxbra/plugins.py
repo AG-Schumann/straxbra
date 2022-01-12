@@ -790,8 +790,20 @@ class EventKryptonBasics(strax.LoopPlugin):
     strax.Option('sp_krypton_s1s_dt_max', default=2500,
                  help='maximum time difference beetween 2 peaks '
                       'to be considered two S1s'),
-    strax.Option('electron_lifetime', default=-1,
+    
+    strax.Option('sp_krypton_electron_lifetime', default=-1,
                  help='electron lifetime in this run [µs)'),
+                 
+    strax.Option('sp_krypton_min_S2_area', default=100,
+                 help='Minimum S2 area (in PE)'),
+    strax.Option('sp_krypton_max_S2_area', default=1_000_000,
+                 help='Maximum S2 area (in PE)'),
+
+    strax.Option('sp_krypton_min_drifttime_ns', default=0,
+                 help='Minimum Drifttime (ns)'),
+    strax.Option('sp_krypton_max_drifttime_ns', default=40_000,
+                 help='Maximum drifttime (ns)'),
+
 )
 
 @export
@@ -950,13 +962,20 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         
         
         # check if S2-like might be S2:
-        if (result["dt_s11_largest"] > 0) and result["largest_peak_is_not_S1_like"]:
+        if (
+                (result["dt_s11_largest"] >= self.config["sp_krypton_min_drifttime_ns"])
+            and (result["dt_s11_largest"] <= self.config["sp_krypton_max_drifttime_ns"])
+            and (result["largest_peak_area"] >= self.config["sp_krypton_min_S2_area"])
+            and (result["largest_peak_area"] <= self.config["sp_krypton_max_S2_area"])
+            and (result["largest_peak_is_not_S1_like"])
+        ):
             result["S2_area"] = peaks[id_largest_s]["area"]
             result["S2_width"] = peaks[id_largest_s]["range_50p_area"]
             result["S2_dt"] = result["dt_s11_largest"]  / 1000
             
-            if self.config["electron_lifetime"] > 0:
-                result["S2_area_corr"] = peaks[id_largest_s]["area"]# TODO
+            if self.config["sp_krypton_electron_lifetime"] > 0:
+                result["S2_area_corr"] = result["S2_area"] * np.exp(result["S2_dt"] / self.config["sp_krypton_electron_lifetime"])
+
             
             
                 

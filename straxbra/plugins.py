@@ -790,6 +790,8 @@ class EventKryptonBasics(strax.LoopPlugin):
     strax.Option('sp_krypton_s1s_dt_max', default=2500,
                  help='maximum time difference beetween 2 peaks '
                       'to be considered two S1s'),
+    strax.Option('electron_lifetime', default=-1,
+                 help='electron lifetime in this run [µs)'),
 )
 
 @export
@@ -818,11 +820,20 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                 (('area ratio of both s1 likes',
                    'ratio_area_s1s'), np.float32),
                 
+                (('time of first s1 like',
+                   's1_1_time'), np.int64, ),
+                (('time of second s1 like',
+                   's1_2_time'), np.int64, ),
+                
+                
+                
                 
                 
                 (('id of s1 and largest peaks',
                    'peaks_ids'), np.int64,(5,)),
                 
+                # those entries are only here to keep my old script working
+                # please don't use those entries as their label might be ambiguous
                 
                 (('largest non s1-like peak area in PE',
                    'largest_peak_area'), np.float32),
@@ -848,6 +859,20 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                 (('time difference of largest non s1 like peaks',
                    'dt_largest'), np.float32),
                 
+                
+                # new: actual S2 peaks-data (same as above but labeld better)
+                (('S2 area (in PE, if S2 exists)',
+                   'S2_area'), np.float32),
+                (('corrected S2 area (in PE, if S2 exists)',
+                   'S2_area_corr'), np.float32),                   
+                (('S2 width (ns, if S2 exists))',
+                   'S2_width'), np.float32),
+                (('drifttime in µs',
+                   'S2_dt'), np.float32),
+                
+                
+                (('pulses after the S2 (area, width, time)',
+                   'S2_afterpulses'), np.float32, (5, 3)),
                 
                 
                 
@@ -876,12 +901,14 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         ids_s1_test = np.nonzero(diff_time < self.config["sp_krypton_s1s_dt_max"])[0]
         if len(ids_s1_test) < 1:
             return(result)
-        
+         
         
         id_first_s1  = peak_ids_ss[min(ids_s1_test)]
         id_second_s1  = peak_ids_ss[min(ids_s1_test) + 1]
 
 
+        result["s1_1_time"] = peaks[id_first_s1]["time"]
+        result["s1_2_time"] = peaks[id_second_s1]["time"]        
         result["s1_1_area"] = peaks[id_first_s1]["area"]
         result["s1_2_area"] = peaks[id_second_s1]["area"]
         result["s1_1_width"] = peaks[id_first_s1]["range_50p_area"]
@@ -910,7 +937,8 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         
         id_largest_s = peak_ids_by_area[-1]
         
-        result["largest_peak_is_not_S1_like"] = (id_largest_peak_all != id_first_s1)
+        # maybe the seconds s1 is larger than the first one....
+        result["largest_peak_is_not_S1_like"] = (id_largest_peak_all not in [id_first_s1, id_second_s1])
         
         
         
@@ -918,6 +946,34 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         result["dt_s11_largest"] = peaks[id_largest_s]["time"] - peaks[id_first_s1]["time"]
         result["largest_peak_area"] = peaks[id_largest_s]["area"]
         result["largest_peak_width"] = peaks[id_largest_s]["range_50p_area"]
+        
+        
+        
+        # check if S2-like might be S2:
+        if (result["dt_s11_largest"] > 0) and result["largest_peak_is_not_S1_like"]:
+            result["S2_area"] = peaks[id_largest_s]["area"]
+            result["S2_width"] = peaks[id_largest_s]["range_50p_area"]
+            result["S2_dt"] = result["dt_s11_largest"]  / 1000
+            
+            if self.config["electron_lifetime"] > 0:
+                result["S2_area_corr"] = peaks[id_largest_s]["area"]# TODO
+            
+            
+                
+        result["S2_afterpulses"] = [(0,0,0)]*5
+        for i, peak_id in enumerate(range(id_largest_s+1, len(peaks)-1)):
+            if i == 5:
+                break
+
+            result["S2_afterpulses"][i] = (
+            
+                peaks[peak_id]["area"],
+                peaks[peak_id]["range_50p_area"],
+                peaks[peak_id]["time"],
+            )
+            
+        
+        
         
 
         if len(peak_ids_by_area) == 1:
@@ -930,9 +986,6 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         result["second_largest_peak_area"] = peaks[id_second_largest_s]["area"]
         result["second_largest_peak_width"] = peaks[id_second_largest_s]["range_50p_area"]
         result["dt_largest"] = peaks[id_largest_s]["time"] - peaks[id_second_largest_s]["time"]
-        
-        
-        
         
         
         return result

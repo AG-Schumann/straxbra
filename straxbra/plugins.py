@@ -883,8 +883,24 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                    'S2_dt'), np.float32),
                 
                 
-                (('pulses after the S2 (area, width, time)',
-                   'S2_afterpulses'), np.float32, (5, 3)),
+                
+                (('pulses before the first S1 (area, width, time, n_channels), only first 10',
+                   'S2_prepulses'), np.float32, (10, 4)),
+                
+                (('pulses between the second S1 and the S2 (area, width, time, n_channels), only first 5',
+                   'S2_midpulses'), np.float32, (5, 4)),
+                
+                (('pulses after the S2 (area, width, time, n_channels), only first 20',
+                   'S2_afterpulses'), np.float32, (20, 4)),
+                
+                (('Number of pulses before the first S1',
+                   'S2_N_prepulses'), np.int64),
+                   
+                (('Number of pulses between the second S1 and the S2',
+                   'S2_N_midpulses'), np.int64),
+                
+                (('Number of pulses after the S2',
+                   'S2_N_afterpulses'), np.int64),
                 
                 
                 
@@ -930,8 +946,8 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
 
 
         peak_ids_by_area = np.argsort(peaks["area"])
-        
         id_largest_peak_all = peak_ids_by_area[-1]
+        
         
         result["largest_peak_all_area"] = peaks[id_largest_peak_all]["area"]
         result["largest_peak_all_width"] = peaks[id_largest_peak_all]["range_50p_area"]
@@ -968,6 +984,7 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
             and (result["largest_peak_area"] >= self.config["sp_krypton_min_S2_area"])
             and (result["largest_peak_area"] <= self.config["sp_krypton_max_S2_area"])
             and (result["largest_peak_is_not_S1_like"])
+            and (id_largest_s > id_second_s1) # S2 MUST come after second S1
         ):
             result["S2_area"] = peaks[id_largest_s]["area"]
             result["S2_width"] = peaks[id_largest_s]["range_50p_area"]
@@ -977,18 +994,52 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                 result["S2_area_corr"] = result["S2_area"] * np.exp(result["S2_dt"] / self.config["sp_krypton_electron_lifetime"])
 
             
+
+        # prepulses
+        result["S2_prepulses"] = [(0,0,0,0)]*10
+        result["S2_N_prepulses"] = id_first_s1
+        for i, peak_id in enumerate(range(0, id_first_s1)):
+            if i == 10:
+                break
+            result["S2_prepulses"][i] = (
             
-                
-        result["S2_afterpulses"] = [(0,0,0)]*5
-        for i, peak_id in enumerate(range(id_largest_s+1, len(peaks)-1)):
+                peaks[peak_id]["area"],
+                peaks[peak_id]["range_50p_area"],
+                max(0, peaks[peak_id]["time"] - peaks[peak_id-1]["time"]),
+                peaks[peak_id]["n_channels"],
+            )
+        
+
+        # midpulses
+        result["S2_midpulses"] = [(0,0,0,0)]*5
+        result["S2_N_midpulses"] = id_largest_s - id_second_s1 - 1
+        for i, peak_id in enumerate(range(id_second_s1+1, id_largest_s)):
             if i == 5:
+                break
+            result["S2_midpulses"][i] = (
+            
+                peaks[peak_id]["area"],
+                peaks[peak_id]["range_50p_area"],
+                peaks[peak_id]["time"] - peaks[peak_id-1]["time"],
+                peaks[peak_id]["n_channels"],
+            )
+                
+
+
+
+        # Afterpulses
+        result["S2_afterpulses"] = [(0,0,0,0)]*20
+        result["S2_N_afterpulses"] = len(peaks) - id_largest_s - 1
+        for i, peak_id in enumerate(range(id_largest_s+1, len(peaks)-1)):
+            if i == 20:
                 break
 
             result["S2_afterpulses"][i] = (
             
                 peaks[peak_id]["area"],
                 peaks[peak_id]["range_50p_area"],
-                peaks[peak_id]["time"],
+                peaks[peak_id]["time"] - peaks[peak_id-1]["time"],
+                peaks[peak_id]["n_channels"],
             )
             
         

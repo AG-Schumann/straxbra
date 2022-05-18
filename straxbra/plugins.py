@@ -8,6 +8,7 @@ import numba
 
 from . import utils
 import strax
+
 export, __all__ = strax.exporter()
 
 # V/adc * (sec/sample) * (1/resistance) * (1/electron charge) * (amplification)
@@ -187,6 +188,10 @@ class Records(strax.Plugin):
                      help='Minimum prominence height to split peaks'),
         strax.Option('split_min_ratio', default=4,
                      help='Minimum prominence ratio to split peaks'),
+        
+        strax.Option('split_n_smoothing', default=0,
+                     help='how strong the peak smooting is applied (only for find_split_points)'),
+                     
         strax.Option('to_pe', track=False,
                      default_by_run=utils.GetGains,
                      help='PMT gains'),
@@ -218,12 +223,15 @@ class Peaks(strax.Plugin):
                                  right_extension=self.config['peak_right_extension'],
                                  min_channels=self.config['peak_min_chan'],
                                  min_area=self.config['peak_min_area'],
-                                 max_duration=self.config['peak_max_duration'])
+                                 max_duration=self.config['peak_max_duration'],
+                                 )
         strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'])
         peaks = peaks[peaks['dt'] > 0]  # removes strange edge case
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   min_height=self.config['split_min_height'],
-                                  min_ratio=self.config['split_min_ratio'])
+                                  min_ratio=self.config['split_min_ratio'],
+                                  n_smoothing=self.config['split_n_smoothing']
+                                  )
 
         strax.compute_widths(peaks)
 
@@ -803,7 +811,6 @@ class EventKryptonBasics(strax.LoopPlugin):
                  help='Minimum Drifttime (ns)'),
     strax.Option('sp_krypton_max_drifttime_ns', default=40_000,
                  help='Maximum drifttime (ns)'),
-
 )
 
 @export
@@ -1059,6 +1066,280 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         
         
         return result
+
+
+
+
+
+
+
+
+
+
+
+# Other settigns are already defined for EventsSinglePhaseKryptonBasics
+@export
+@strax.takes_config(
+    strax.Option('sp_krypton_s1_area_min', default=25,
+                 help='minimum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_s1_area_max', default=800,
+                 help='maximum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_s1s_dt_max', default=2500,
+                 help='maximum time difference beetween 2 peaks'
+                      'to be considered two S1s'),
+    strax.Option('sp_krypton_dt_s1s_s2s_max', default=500,
+                 help='how much the S2s are allowed to be further aparth than the S1s'
+                      'to be considered two S1s'),
+                 
+    strax.Option('sp_krypton_min_S2_area', default=100,
+                 help='Minimum S2 area (in PE)'),
+    strax.Option('sp_krypton_max_S2_area', default=1_000_000,
+                 help='Maximum S2 area (in PE)'),
+    strax.Option('sp_krypton_min_drifttime_ns', default=0,
+                 help='Minimum Drifttime (ns)'),
+    strax.Option('sp_krypton_max_drifttime_ns', default=40_000,
+                 help='Maximum drifttime (ns)'),
+                 
+                 
+    strax.Option('sp_krypton_electron_lifetime', default=-1,
+                 help='electron lifetime in this run [µs)'),
+    strax.Option('sp_krypton_g1', default=.1,
+                 help='G'),
+    strax.Option('sp_krypton_g2', default=3,
+                 help='maximum area for a peak to potentially be a S1'),
+                 
+)
+
+
+
+@export
+class SpKrypton(strax.LoopPlugin):
+    """
+    New and improved version for single phase Krypton data
+    optimiced for aggressive cutting: min_height = 0
+    
+    """
+    __version__ = '0.0.1'
+    depends_on = ('events',
+                  'peak_basics', 'peak_classification',
+                  'peak_positions', 'n_competing')
+  
+  
+  
+    def infer_dtype(self):
+        dtype = [
+
+
+                # developer info
+                (('DEVELOPER: number of peaks that might me S1 or S2',
+                   'DEVELOPER_n_pot_signals'), np.int16, 2),
+                                # developer info
+
+
+                # general Info about event
+                # helps to get all peaks and plot them
+                (('timestamp of the first peak in the event (ns)',
+                   'time_event'), np.int64),
+                (('number of peaks in the event',
+                   'n_peaks'), np.int16),
+                   
+                   
+                # simple booleans to base selection on
+                (('wheter the event is a krypton event (2 S1s + 1 or 2 S2s)',
+                   'is_event'), np.bool),
+                (('wheter the S2s got split or not',
+                   's2_split'), np.bool),
+
+
+                # helps to plot only the signals
+                (('timestamps of S11, S12, S21 (and S22 if it is found) (ns)',
+                   'time_signals'), np.int64, 4),
+
+                # uncorrected + corrected areas of individual peaks
+                (('S11 area (PE)',
+                   'area_s11'), np.float32),
+                (('corrected S11 area (PE)',
+                   'cS11'), np.float32),
+                (('S12 area (PE)',
+                   'area_s12'), np.float32),
+                (('corrected S12 area (PE)',
+                   'cS12'), np.float32),
+                
+                (('S21 area (PE)',
+                   'area_s21'), np.float32),
+                (('corrected S21 area (PE)',
+                   'cS21'), np.float32),
+                (('S22 area (PE)',
+                   'area_s22'), np.float32),
+                (('corrected S22 area (PE)',
+                   'cS22'), np.float32),
+                   
+                # uncorrected + corrected areas of combined S1 and S2
+                (('S1 area (PE)',
+                   'area_s1'), np.float32),
+                (('corrected S1 area (PE)',
+                   'cS1'), np.float32),
+                (('S2 area (PE)',
+                   'area_s2'), np.float32),
+                (('corrected S2 area (PE)',
+                   'cS2'), np.float32),
+                
+                # widths of individual peaks and Signals
+                (('Width of S11 (ns)',
+                   'width_s11'), np.float32),
+                (('Width of S12 (ns)',
+                   'width_s12'), np.float32),
+                (('Width of S21 (ns)',
+                   'width_s21'), np.float32),
+                (('Width of S22 (ns)',
+                   'width_s22'), np.float32),
+                (('Width of S1 (ns)',
+                   'width_s1'), np.float32),
+                (('Width of S2 (ns)',
+                   'width_s2'), np.float32),
+                   
+                # Krypton decay times
+                (('time from S11 to S12 (ns)',
+                   'time_decay_s1'), np.int64),
+                (('time from S21 to S22 (ns)',
+                   'time_decay_s2'), np.int64),
+                
+                # Drifttime
+                (('drifttime between S11 and S21 (ns)',
+                   'time_drift'), np.int64),
+                # why not ...
+                (('drifttime between S12 and S22 (ns)',
+                   'time_drift2'), np.int64),
+                
+                # All the energies (if g1, g2, elifetime are provided)
+                (('Energy of S1',
+                   'energy_s1'), np.float32),
+                (('Energy of S2',
+                   'energy_s2'), np.float32),
+                (('Total Energy of Event',
+                   'energy_total'), np.float32),
+                
+                   
+                ]
+
+        return dtype
+
+
+
+
+    def compute_loop(self, event, peaks):
+        
+        result = {}
+        result["n_peaks"] = len(peaks)
+        result["time_event"] = peaks[0]["time"]
+        
+        if not len(peaks):
+            return(result)
+        
+        peaks_large = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
+        
+        S11 = {"area": 0, "time":-1, "range_50p_area": 0}
+        S12 = {"area": 0, "time":-1, "range_50p_area": 0}
+        S21 = {"area": 0, "time":-1, "range_50p_area": 0}
+        S22 = {"area": 0, "time":-1, "range_50p_area": 0}
+
+        
+        if not len(peaks_large) >= 3:
+            # not enough peaks
+            return(result)
+            
+
+        if not peaks_large[2]["area"] > peaks_large[0]["area"] > peaks_large[1]["area"]:
+            # area not satisfied
+            return(result)
+        
+        S11 = peaks_large[0]
+        S12 = peaks_large[1]
+        S21 = peaks_large[2]
+        
+        decay1 = (S12["time"] - S11["time"])
+        
+        
+        # check if S22 exits
+        if len(peaks_large) > 3:
+            decay2 = (peaks_large[3]["time"] - S21["time"])
+            if np.abs(decay2 - decay1) <= self.config["sp_krypton_dt_s1s_s2s_max"]:
+                S22 = peaks_large[3]
+        
+        if not (S11["area"] <= self.config["sp_krypton_s1_area_max"]) and (S12["area"] < self.config["sp_krypton_s1_area_max"]):
+            # area not satisfied
+            return(result)
+        
+        if not (
+              ((S12["time"] - S11["time"]) <= self.config["sp_krypton_s1s_dt_max"])
+            & ((S21["time"] - S11["time"]) <= self.config["sp_krypton_max_drifttime_ns"])
+        
+        ):
+            # timing not satisfied
+            return(result)
+        
+        result["time_event"] = S11["time"]
+        result["time_signals"] = (S11["time"], S12["time"], S21["time"], S22["time"])
+        result["time_decay_s1"] = decay1
+        result["time_drift"] = S21["time"]-S11["time"]
+        
+        result["area_s11"] = S11["area"]
+        result["area_s12"] = S12["area"]
+        result["area_s21"] = S21["area"]
+        result["area_s22"] = S22["area"]
+        result["area_s1"] = S11["area"] + S12["area"]
+        result["area_s2"] = S21["area"] + S22["area"]
+        
+        # TODO: ADD Correction for CS1
+        result["cS11"] = S11["area"] * 0
+        result["cS12"] = S12["area"] * 0
+        result["cS1"] = result["cS11"] + result["cS12"]
+        #
+        #
+        #
+        if self.config["sp_krypton_electron_lifetime"] > 0:
+            f_S21 = np.exp(result["time_drift"]/self.config["sp_krypton_electron_lifetime"])
+            f_S22 = f_S21
+            result["cS21"] = S21["area"] * f_S21
+            result["cS22"] = S22["area"] * f_S22
+            result["cS2"] = result["cS21"] + result["cS22"]
+            
+    
+        result["width_s11"] = S11["range_50p_area"]
+        result["width_s12"] = S12["range_50p_area"]
+        result["width_s21"] = S21["range_50p_area"]
+        result["width_s22"] = S22["range_50p_area"]
+        result["width_s1"] = S11["range_50p_area"] + S12["range_50p_area"]
+        result["width_s2"] = S21["range_50p_area"] + S22["range_50p_area"]
+        
+        result["is_event"] = True
+        
+        
+        if S22["area"] > 0:
+            result["time_decay_s2"] = decay2
+            result["time_drift2"] = S22["time"] - S12["time"]
+            result["s2_split"] = True
+
+
+        return(result)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1,5 +1,5 @@
 
-__version__ = '0.0.1-Flo'
+__version__ = '0.0.2-Flo'
 
 from .xebra_context import XebraContext, HtpcContext, SinglePhaseContext
 from . import plugins

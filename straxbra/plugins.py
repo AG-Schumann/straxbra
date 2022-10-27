@@ -3,6 +3,7 @@ import shutil
 
 import numpy as np
 from scipy.ndimage.interpolation import shift
+from scipy.optimize import curve_fit
 
 import numba
 
@@ -13,6 +14,7 @@ export, __all__ = strax.exporter()
 
 # V/adc * (sec/sample) * (1/resistance) * (1/electron charge) * (amplification)
 adc_to_e = (2.25/2**14) * (1e-8) * (1/50) * (1/1.602e-19) * (10)
+
 
 
 @export
@@ -202,6 +204,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
+    __version__ = "0.0.1E"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -209,7 +212,11 @@ class Peaks(strax.Plugin):
 
 
     def infer_dtype(self):
-        return strax.peak_dtype(n_channels=self.config['n_channels'])
+        dtype_peaks =  strax.peak_dtype(n_channels=8)
+        dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
+        
+        return(dtype_peaks)
+        
 
     def compute(self, records):
         r = records
@@ -248,7 +255,7 @@ class PeakBasics(strax.Plugin):
     Stolen from straxen, extended with risetime. Also replaces
     aft for nonphysical peaks with nan.
     """
-    __version__ = "0.0.1"
+    __version__ = "0.0.2B"
     parallel = True
     depends_on = ('peaks',)
     dtype = [
@@ -268,6 +275,8 @@ class PeakBasics(strax.Plugin):
             'range_50p_area'), np.float32),
         (('Risetime (in ns) of the peak',
             'risetime'), np.float32),
+        (('Time (in ns) to midpoint',
+            'time_to_midpoint'), np.float32),
         (('Fraction of area seen by the top array',
             'area_fraction_top'), np.float32),
         (('Length of the peak waveform in samples',
@@ -285,6 +294,13 @@ class PeakBasics(strax.Plugin):
         r['n_channels'] = (p['area_per_channel'] > 0).sum(axis=1)
         r['range_50p_area'] = p['width'][:, 5]
         r['risetime'] = -p['area_decile_from_midpoint'][:,1]
+        
+        # old buggy version commented out
+        # r['time_to_midpoint'] = -p['area_decile_from_midpoint'][:,0]
+        # use 50 % quantile time instead
+        r['time_to_midpoint'] = -p['time_to_midpoint']
+        
+        
         r['max_pmt'] = np.argmax(p['area_per_channel'], axis=1)
         r['max_pmt_area'] = np.max(p['area_per_channel'], axis=1)
 
@@ -639,7 +655,7 @@ class Events(strax.OverlapWindowPlugin):
 
 @export
 class EventBasics(strax.LoopPlugin):
-    __version__ = '0.0.1'
+    __version__ = '0.0.2'
     depends_on = ('events',
                   'peak_basics', 'peak_classification',
                   'peak_positions', 'n_competing')
@@ -660,6 +676,8 @@ class EventBasics(strax.LoopPlugin):
                         f's{i}_area_fraction_top'), np.float32),
                       ((f'Main S{i} width (ns, 50% area)',
                         f's{i}_range_50p_area'), np.float32),
+                      ((f'Main S{i} time to midpoint (ns)',
+                        f's{i}_time_to_midpoint'), np.float32),  
                       ((f'Main S{i} number of competing peaks',
                         f's{i}_n_competing'), np.int32)]
         dtype += [(f'x_s2', np.float32,
@@ -705,7 +723,7 @@ class EventBasics(strax.LoopPlugin):
             s = main_s[s_i] = ss[main_i]
 
             for prop in ['area', 'area_fraction_top',
-                         'range_50p_area', 'n_competing']:
+                         'range_50p_area', 'n_competing','time_to_midpoint']:
                 result[f's{s_i}_{prop}'] = s[prop]
             if s_i == 2:
                 for q in 'xy':
@@ -950,8 +968,7 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
         result["s1_2_width"] = peaks[id_second_s1]["range_50p_area"]
         result["dt_s1s"] = peaks[id_second_s1]["time"]- peaks[id_first_s1]["time"]
         result["ratio_area_s1s"] = peaks[id_first_s1]["area"] / peaks[id_second_s1]["area"]
-
-
+        
         peak_ids_by_area = np.argsort(peaks["area"])
         id_largest_peak_all = peak_ids_by_area[-1]
         
@@ -1097,17 +1114,16 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                  help='Maximum S2 area (in PE)'),
     strax.Option('sp_krypton_min_drifttime_ns', default=0,
                  help='Minimum Drifttime (ns)'),
-    strax.Option('sp_krypton_max_drifttime_ns', default=40_000,
+    strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
                  help='Maximum drifttime (ns)'),
                  
                  
     strax.Option('sp_krypton_electron_lifetime', default=-1,
                  help='electron lifetime in this run [µs)'),
-    strax.Option('sp_krypton_g1', default=.1,
+    strax.Option('sp_krypton_g1', default=.11,
                  help='G'),
     strax.Option('sp_krypton_g2', default=3,
                  help='maximum area for a peak to potentially be a S1'),
-                 
 )
 
 
@@ -1119,9 +1135,9 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.1'
+    __version__ = '0.0.4'
     depends_on = ('events',
-                  'peak_basics', 'peak_classification',
+                  'peaks', 'peak_basics', 'peak_classification',
                   'peak_positions', 'n_competing')
   
   
@@ -1154,7 +1170,19 @@ class SpKrypton(strax.LoopPlugin):
                 # helps to plot only the signals
                 (('timestamps of S11, S12, S21 (and S22 if it is found) (ns)',
                    'time_signals'), np.int64, 4),
-
+                
+                # used to calculate time differences
+                (('center of peaks (ns)',
+                   'time_peaks'), np.int64, 4),
+                   
+                   
+                (('the entire waveform of the peaks for convientent and quick access',
+                   'data_peaks'), np.float32, (4, 200)),
+                
+                (('Time resolution of the peaks waveform in ns',
+                  'dt'), np.int16, 4),
+                
+                
                 # uncorrected + corrected areas of individual peaks
                 (('S11 area (PE)',
                    'area_s11'), np.float32),
@@ -1205,18 +1233,19 @@ class SpKrypton(strax.LoopPlugin):
                    'time_decay_s2'), np.int64),
                 
                 # Drifttime
-                (('drifttime between S11 and S21 (ns)',
-                   'time_drift'), np.int64),
+                (('drifttime between S11 and S21 (µs)',
+                   'time_drift'), np.float32),
                 # why not ...
-                (('drifttime between S12 and S22 (ns)',
-                   'time_drift2'), np.int64),
+                (('drifttime between S12 and S22 (µs)',
+                   'time_drift2'), np.float32),
+                
                 
                 # All the energies (if g1, g2, elifetime are provided)
-                (('Energy of S1',
+                (('Energy of S1 (keV)',
                    'energy_s1'), np.float32),
-                (('Energy of S2',
+                (('Energy of S2 (keV)',
                    'energy_s2'), np.float32),
-                (('Total Energy of Event',
+                (('Total Energy of Event (keV)',
                    'energy_total'), np.float32),
                 
                    
@@ -1257,7 +1286,19 @@ class SpKrypton(strax.LoopPlugin):
         S12 = peaks_large[1]
         S21 = peaks_large[2]
         
-        decay1 = (S12["time"] - S11["time"])
+        S11_offset_peak = S11["time_to_midpoint"]
+        S12_offset_peak = S12["time_to_midpoint"]
+        S21_offset_peak = S21["time_to_midpoint"]
+        S22_offset_peak = -1
+        
+        
+        S11_time_peak = S11_offset_peak
+        S12_time_peak = S12_offset_peak + (S12["time"] - S11["time"])
+        S21_time_peak = S21_offset_peak + (S21["time"] - S11["time"])
+        S22_time_peak = -1
+        
+        
+        decay1 = (S12_time_peak - S11_time_peak)
         
         
         # check if S22 exits
@@ -1265,7 +1306,10 @@ class SpKrypton(strax.LoopPlugin):
             decay2 = (peaks_large[3]["time"] - S21["time"])
             if np.abs(decay2 - decay1) <= self.config["sp_krypton_dt_s1s_s2s_max"]:
                 S22 = peaks_large[3]
-        
+                # S22_offset_peak = get_50percent_quantile(S22)
+                S22_offset_peak = S22["time_to_midpoint"]
+                S22_time_peak = S22_offset_peak  + (S22["time"] - S11["time"])
+                
         if not (S11["area"] <= self.config["sp_krypton_s1_area_max"]) and (S12["area"] < self.config["sp_krypton_s1_area_max"]):
             # area not satisfied
             return(result)
@@ -1278,10 +1322,18 @@ class SpKrypton(strax.LoopPlugin):
             # timing not satisfied
             return(result)
         
-        result["time_event"] = S11["time"]
+        
+        
         result["time_signals"] = (S11["time"], S12["time"], S21["time"], S22["time"])
+        result["time_peaks"] = (S11_offset_peak, S12_offset_peak, S21_offset_peak, S22_offset_peak)
+        
+        
+        result["dt"] = [S11["dt"], S12["dt"], S21["dt"], 10]
+        
+        
         result["time_decay_s1"] = decay1
-        result["time_drift"] = S21["time"]-S11["time"]
+        result["time_drift"] = (S21["time"]-S11["time"])/1000
+        
         
         result["area_s11"] = S11["area"]
         result["area_s12"] = S12["area"]
@@ -1290,7 +1342,12 @@ class SpKrypton(strax.LoopPlugin):
         result["area_s1"] = S11["area"] + S12["area"]
         result["area_s2"] = S21["area"] + S22["area"]
         
-        # TODO: ADD Correction for CS1
+        result["data_peaks"] = [[0]*200]*4
+        result["data_peaks"][0] = S11["data"]
+        result["data_peaks"][1] = S12["data"]
+        result["data_peaks"][2] = S21["data"]
+
+        
         result["cS11"] = S11["area"] * 0
         result["cS12"] = S12["area"] * 0
         result["cS1"] = result["cS11"] + result["cS12"]
@@ -1304,6 +1361,7 @@ class SpKrypton(strax.LoopPlugin):
             result["cS22"] = S22["area"] * f_S22
             result["cS2"] = result["cS21"] + result["cS22"]
             
+            
     
         result["width_s11"] = S11["range_50p_area"]
         result["width_s12"] = S12["range_50p_area"]
@@ -1316,10 +1374,13 @@ class SpKrypton(strax.LoopPlugin):
         
         
         if S22["area"] > 0:
-            result["time_decay_s2"] = decay2
-            result["time_drift2"] = S22["time"] - S12["time"]
+            
+            result["time_decay_s2"] = S22_time_peak - S21_time_peak
+            result["time_drift2"] = (S22_time_peak - S12_time_peak)/1000
+            
+            result["data_peaks"][3] = S22["data"]
+            result["dt"][3] = S22["dt"]
             result["s2_split"] = True
-
 
         return(result)
 

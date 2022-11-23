@@ -204,7 +204,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1E"
+    __version__ = "0.0.1F"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -1014,11 +1014,7 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
             result["S2_width"] = peaks[id_largest_s]["range_50p_area"]
             result["S2_dt"] = result["dt_s11_largest"]  / 1000
             
-            if self.config["sp_krypton_electron_lifetime"] > 0:
-                result["S2_area_corr"] = result["S2_area"] * np.exp(result["S2_dt"] / self.config["sp_krypton_electron_lifetime"])
-
             
-
         # prepulses
         result["S2_prepulses"] = [(0,0,0,0)]*10
         result["S2_N_prepulses"] = id_first_s1
@@ -1099,7 +1095,7 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
 @strax.takes_config(
     strax.Option('sp_krypton_s1_area_min', default=25,
                  help='minimum area for a peak to potentially be a S1'),
-    strax.Option('sp_krypton_s1_area_max', default=800,
+    strax.Option('sp_krypton_s1_area_max', default=400,
                  help='maximum area for a peak to potentially be a S1'),
     strax.Option('sp_krypton_s1s_dt_max', default=2500,
                  help='maximum time difference beetween 2 peaks'
@@ -1116,14 +1112,7 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                  help='Minimum Drifttime (ns)'),
     strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
                  help='Maximum drifttime (ns)'),
-                 
-                 
-    strax.Option('sp_krypton_electron_lifetime', default=-1,
-                 help='electron lifetime in this run [µs)'),
-    strax.Option('sp_krypton_g1', default=.11,
-                 help='G'),
-    strax.Option('sp_krypton_g2', default=3,
-                 help='maximum area for a peak to potentially be a S1'),
+
 )
 
 
@@ -1135,10 +1124,8 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4'
-    depends_on = ('events',
-                  'peaks', 'peak_basics', 'peak_classification',
-                  'peak_positions', 'n_competing')
+    __version__ = '0.0.4H'
+    depends_on = ('events', 'peaks', 'peak_basics')
   
   
   
@@ -1235,9 +1222,20 @@ class SpKrypton(strax.LoopPlugin):
                 # Drifttime
                 (('drifttime between S11 and S21 (µs)',
                    'time_drift'), np.float32),
-                # why not ...
                 (('drifttime between S12 and S22 (µs)',
                    'time_drift2'), np.float32),
+                
+                
+                # create those values so we can populate them easyil 
+                (('corrected drifttime between S11 and S21 (µs)',
+                   'cdt'), np.float32),
+                (('corrected drifttime between S12 and S22 (µs)',
+                   'cdt2'), np.float32),
+                (('z-position of event based on S11 and S21 (mm)',
+                   'z'), np.float32),
+                (('z-position of event based on S12 and S22 (mm)',
+                   'z2'), np.float32),
+                
                 
                 
                 # All the energies (if g1, g2, elifetime are provided)
@@ -1278,7 +1276,7 @@ class SpKrypton(strax.LoopPlugin):
             return(result)
             
 
-        if not peaks_large[2]["area"] > peaks_large[0]["area"] > peaks_large[1]["area"]:
+        if not (peaks_large[2]["area"] > peaks_large[0]["area"] > peaks_large[1]["area"]):
             # area not satisfied
             return(result)
         
@@ -1310,8 +1308,8 @@ class SpKrypton(strax.LoopPlugin):
                 S22_offset_peak = S22["time_to_midpoint"]
                 S22_time_peak = S22_offset_peak  + (S22["time"] - S11["time"])
                 
-        if not (S11["area"] <= self.config["sp_krypton_s1_area_max"]) and (S12["area"] < self.config["sp_krypton_s1_area_max"]):
-            # area not satisfied
+        if (S11["area"] > self.config["sp_krypton_s1_area_max"]) or (S12["area"] > self.config["sp_krypton_s1_area_max"]):
+            # area too large
             return(result)
         
         if not (
@@ -1354,15 +1352,6 @@ class SpKrypton(strax.LoopPlugin):
         #
         #
         #
-        if self.config["sp_krypton_electron_lifetime"] > 0:
-            f_S21 = np.exp(result["time_drift"]/self.config["sp_krypton_electron_lifetime"])
-            f_S22 = f_S21
-            result["cS21"] = S21["area"] * f_S21
-            result["cS22"] = S22["area"] * f_S22
-            result["cS2"] = result["cS21"] + result["cS22"]
-            
-            
-    
         result["width_s11"] = S11["range_50p_area"]
         result["width_s12"] = S12["range_50p_area"]
         result["width_s21"] = S21["range_50p_area"]

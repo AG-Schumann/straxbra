@@ -1103,16 +1103,18 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
     strax.Option('sp_krypton_dt_s1s_s2s_max', default=500,
                  help='how much the S2s are allowed to be further aparth than the S1s'
                       'to be considered two S1s'),
-                 
-    strax.Option('sp_krypton_min_S2_area', default=100,
-                 help='Minimum S2 area (in PE)'),
-    strax.Option('sp_krypton_max_S2_area', default=1_000_000,
-                 help='Maximum S2 area (in PE)'),
     strax.Option('sp_krypton_min_drifttime_ns', default=0,
                  help='Minimum Drifttime (ns)'),
     strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
                  help='Maximum drifttime (ns)'),
-
+    
+    # these two were not used wtf......
+    # commented out in 0.0.4J
+    # strax.Option('sp_krypton_min_S2_area', default=100,
+                 # help='Minimum S2 area (in PE)'),
+    # strax.Option('sp_krypton_max_S2_area', default=1_000_000,
+                 # help='Maximum S2 area (in PE)'),
+    
 )
 
 
@@ -1124,7 +1126,7 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4H'
+    __version__ = '0.0.4V'#WXYZ
     depends_on = ('events', 'peaks', 'peak_basics')
   
   
@@ -1137,6 +1139,11 @@ class SpKrypton(strax.LoopPlugin):
                 (('DEVELOPER: number of peaks that might me S1 or S2',
                    'DEVELOPER_n_pot_signals'), np.int16, 2),
                                 # developer info
+                (('DEVELOPER: at which stage the compute loop exits',
+                   'DEVELOPER_fails'), np.bool, 16),
+                                # developer info
+                                # we just use 9, but i guess its using 2 bits anyway,
+                                # so why not just future proofing this....
 
 
                 # general Info about event
@@ -1145,6 +1152,10 @@ class SpKrypton(strax.LoopPlugin):
                    'time_event'), np.int64),
                 (('number of peaks in the event',
                    'n_peaks'), np.int16),
+                (('number of large peaks in the event (larger than sp_krypton_s1_area_min)',
+                   'n_peaks_large'), np.int16),
+                (('timestamps of first 20 large peaks',
+                   'time_large_peaks'), np.int64, 20),
                    
                    
                 # simple booleans to base selection on
@@ -1152,14 +1163,15 @@ class SpKrypton(strax.LoopPlugin):
                    'is_event'), np.bool),
                 (('wheter the S2s got split or not',
                    's2_split'), np.bool),
-
+                (('wheter minimum peaks are found',
+                   'min_peaks'), np.bool),
 
                 # helps to plot only the signals
                 (('timestamps of S11, S12, S21 (and S22 if it is found) (ns)',
                    'time_signals'), np.int64, 4),
                 
                 # used to calculate time differences
-                (('center of peaks (ns)',
+                (('center of peaks (ns) relative to first S1',
                    'time_peaks'), np.int64, 4),
                    
                    
@@ -1251,7 +1263,21 @@ class SpKrypton(strax.LoopPlugin):
 
         return dtype
 
-
+    def store_peak(self, p, i, result):
+        f = ["s11", "s12", "s21", "s22"][i]
+        
+        result[f"area_{f}"] = p["area"]
+        result[f"width_{f}"] = p["range_50p_area"]
+        result["time_signals"][i] = p["time"]
+        
+        result["dt"][i] = p["dt"]
+        result["data_peaks"][i] = p["data"]
+        
+        if i == 0:
+            result["time_peaks"][i] = p["time_to_midpoint"]
+        else:
+            result["time_peaks"][i] = p["time_to_midpoint"] + (p["time"]-result["time_signals"][0])
+        return(None)
 
 
     def compute_loop(self, event, peaks):
@@ -1259,119 +1285,117 @@ class SpKrypton(strax.LoopPlugin):
         result = {}
         result["n_peaks"] = len(peaks)
         result["time_event"] = peaks[0]["time"]
+        # initialize multipeak variables
+        result["DEVELOPER_fails"] = [False]*16
+        result["data_peaks"] = [[0]*200]*4
+        result["time_signals"] = [-1]*4
+        result["time_peaks"] = [-1]*4
+        result["dt"] = [-1]*4
         
-        if not len(peaks):
+        
+        if len(peaks) == 0:
+            result["DEVELOPER_fails"][0] = True
             return(result)
         
         peaks_large = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
         
-        S11 = {"area": 0, "time":-1, "range_50p_area": 0}
-        S12 = {"area": 0, "time":-1, "range_50p_area": 0}
-        S21 = {"area": 0, "time":-1, "range_50p_area": 0}
-        S22 = {"area": 0, "time":-1, "range_50p_area": 0}
-
         
-        if not len(peaks_large) >= 3:
-            # not enough peaks
-            return(result)
-            
-
-        if not (peaks_large[2]["area"] > peaks_large[0]["area"] > peaks_large[1]["area"]):
-            # area not satisfied
-            return(result)
+        # export large peaks for easy investigations
+        result["n_peaks_large"] = len(peaks_large)
+        result["time_large_peaks"] = [-1]*20
+        for i, p in enumerate(peaks_large[:20]):
+            result["time_large_peaks"][i] = p["time"]
         
+        
+        
+        # move all S1 stuff up here to access it even if there are not enough events
+        # if we have at least one peaks this  is stored as first S1
         S11 = peaks_large[0]
+        self.store_peak(p = S11, i = 0, result = result)
+        if S11["area"] > self.config["sp_krypton_s1_area_max"]:
+            result["DEVELOPER_fails"][3] = True
+        
+        if len(peaks_large) < 2:
+            result["DEVELOPER_fails"][1] = True
+            return(result)
+        
+        # if we also have second peak that might be our second S1
         S12 = peaks_large[1]
-        S21 = peaks_large[2]
+        self.store_peak(p = S12, i = 1, result = result)
         
-        S11_offset_peak = S11["time_to_midpoint"]
-        S12_offset_peak = S12["time_to_midpoint"]
-        S21_offset_peak = S21["time_to_midpoint"]
-        S22_offset_peak = -1
+        if S12["area"] > self.config["sp_krypton_s1_area_max"]:
+            result["DEVELOPER_fails"][4] = True
         
         
-        S11_time_peak = S11_offset_peak
-        S12_time_peak = S12_offset_peak + (S12["time"] - S11["time"])
-        S21_time_peak = S21_offset_peak + (S21["time"] - S11["time"])
-        S22_time_peak = -1
-        
-        
-        decay1 = (S12_time_peak - S11_time_peak)
-        
-        
-        # check if S22 exits
-        if len(peaks_large) > 3:
-            decay2 = (peaks_large[3]["time"] - S21["time"])
-            if np.abs(decay2 - decay1) <= self.config["sp_krypton_dt_s1s_s2s_max"]:
-                S22 = peaks_large[3]
-                # S22_offset_peak = get_50percent_quantile(S22)
-                S22_offset_peak = S22["time_to_midpoint"]
-                S22_time_peak = S22_offset_peak  + (S22["time"] - S11["time"])
-                
-        if (S11["area"] > self.config["sp_krypton_s1_area_max"]) or (S12["area"] > self.config["sp_krypton_s1_area_max"]):
-            # area too large
-            return(result)
-        
-        if not (
-              ((S12["time"] - S11["time"]) <= self.config["sp_krypton_s1s_dt_max"])
-            & ((S21["time"] - S11["time"]) <= self.config["sp_krypton_max_drifttime_ns"])
-        
-        ):
-            # timing not satisfied
-            return(result)
-        
-        
-        
-        result["time_signals"] = (S11["time"], S12["time"], S21["time"], S22["time"])
-        result["time_peaks"] = (S11_offset_peak, S12_offset_peak, S21_offset_peak, S22_offset_peak)
-        
-        
-        result["dt"] = [S11["dt"], S12["dt"], S21["dt"], 10]
-        
-        
-        result["time_decay_s1"] = decay1
-        result["time_drift"] = (S21["time"]-S11["time"])/1000
-        
-        
-        result["area_s11"] = S11["area"]
-        result["area_s12"] = S12["area"]
-        result["area_s21"] = S21["area"]
-        result["area_s22"] = S22["area"]
+        # combined S1 
         result["area_s1"] = S11["area"] + S12["area"]
-        result["area_s2"] = S21["area"] + S22["area"]
-        
-        result["data_peaks"] = [[0]*200]*4
-        result["data_peaks"][0] = S11["data"]
-        result["data_peaks"][1] = S12["data"]
-        result["data_peaks"][2] = S21["data"]
-
-        
-        result["cS11"] = S11["area"] * 0
-        result["cS12"] = S12["area"] * 0
-        result["cS1"] = result["cS11"] + result["cS12"]
-        #
-        #
-        #
-        result["width_s11"] = S11["range_50p_area"]
-        result["width_s12"] = S12["range_50p_area"]
-        result["width_s21"] = S21["range_50p_area"]
-        result["width_s22"] = S22["range_50p_area"]
         result["width_s1"] = S11["range_50p_area"] + S12["range_50p_area"]
-        result["width_s2"] = S21["range_50p_area"] + S22["range_50p_area"]
+        # store first decay for later use 
+        decay1 = result["time_peaks"][1] - result["time_peaks"][0]
+        result["time_decay_s1"] = decay1
         
-        result["is_event"] = True
+        if (S12["time"] - S11["time"]) > self.config["sp_krypton_s1s_dt_max"]:
+            result["DEVELOPER_fails"][5] = True
+        if S11["area"] < S12["area"]:
+            result["DEVELOPER_fails"][8] = True
         
         
-        if S22["area"] > 0:
-            
-            result["time_decay_s2"] = S22_time_peak - S21_time_peak
-            result["time_drift2"] = (S22_time_peak - S12_time_peak)/1000
-            
-            result["data_peaks"][3] = S22["data"]
-            result["dt"][3] = S22["dt"]
-            result["s2_split"] = True
+        
+        
+        
+        # ALL S1 STUFF DONE
+        if len(peaks_large) < 3:
+            # not enough peaks
+            result["DEVELOPER_fails"][2] = 1
+            return(result)
+        
+        
+        # if a third peak exits it might be our first (or combined) S2
+        S21 = peaks_large[2]
+        self.store_peak(p = S21, i = 2, result = result)
+        
+        if (S21["time"] - S11["time"]) > self.config["sp_krypton_max_drifttime_ns"]:
+            result["DEVELOPER_fails"][6] = True
+        if S21["area"] < S11["area"]:
+            result["DEVELOPER_fails"][7] = True
 
+        
+        # use first S2 area as total S2 area just as fallback if there are no more peaks
+        result["area_s2"] = result["area_s21"]
+        result["width_s2"] = result["width_s21"]
+        
+        
+        
+        # check if S22 exits (just assume its the third peak
+        if len(peaks_large) > 3:
+            S22 = peaks_large[3]
+            self.store_peak(p = S22, i = 3, result = result)
+            decay2 = result["time_peaks"][3] - result["time_peaks"][2]
+            result["time_decay_s2"] = decay2
+            result["time_drift2"] = (result["time_peaks"][3] - result["time_peaks"][1])/1000
+            
+            if np.abs(decay2 - decay1) <= self.config["sp_krypton_dt_s1s_s2s_max"]:
+                result["s2_split"] = True
+                result["area_s2"] = result["area_s21"] + result["area_s22"]
+                result["width_s2"] = result["width_s21"] + result["width_s22"]
+        
+                # only 
+                if len(peaks_large) == 4:
+                    result["min_peaks"] = True
+        else:
+            # here we have only exact 3 peaks, which is the minimum number for an unsplit event
+            result["min_peaks"] = True        
+        
+        
+        # multiple things to check 
+        
+        # all criteria for an event have been satisfied
+        mask_ = [True]*16
+        if True not in result["DEVELOPER_fails"]:
+            result["is_event"] = True
         return(result)
+
+
 
 
 

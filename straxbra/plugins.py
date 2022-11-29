@@ -1126,7 +1126,7 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4V'#WXYZ
+    __version__ = '0.0.4.24'
     depends_on = ('events', 'peaks', 'peak_basics')
   
   
@@ -1358,7 +1358,7 @@ class SpKrypton(strax.LoopPlugin):
             result["DEVELOPER_fails"][6] = True
         if S21["area"] < S11["area"]:
             result["DEVELOPER_fails"][7] = True
-
+        result["time_drift"] = (result["time_peaks"][2] - result["time_peaks"][0])/1000
         
         # use first S2 area as total S2 area just as fallback if there are no more peaks
         result["area_s2"] = result["area_s21"]

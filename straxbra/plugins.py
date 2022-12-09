@@ -1097,24 +1097,16 @@ class EventsSinglePhaseKryptonBasics(strax.LoopPlugin):
                  help='minimum area for a peak to potentially be a S1'),
     strax.Option('sp_krypton_s1_area_max', default=400,
                  help='maximum area for a peak to potentially be a S1'),
-    strax.Option('sp_krypton_s1s_dt_max', default=2500,
+    strax.Option('sp_krypton_s1s_dt_max', default=1500,
                  help='maximum time difference beetween 2 peaks'
                       'to be considered two S1s'),
-    strax.Option('sp_krypton_dt_s1s_s2s_max', default=500,
+    strax.Option('sp_krypton_dt_s1s_s2s_max', default=50,
                  help='how much the S2s are allowed to be further aparth than the S1s'
                       'to be considered two S1s'),
     strax.Option('sp_krypton_min_drifttime_ns', default=0,
                  help='Minimum Drifttime (ns)'),
     strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
                  help='Maximum drifttime (ns)'),
-    
-    # these two were not used wtf......
-    # commented out in 0.0.4J
-    # strax.Option('sp_krypton_min_S2_area', default=100,
-                 # help='Minimum S2 area (in PE)'),
-    # strax.Option('sp_krypton_max_S2_area', default=1_000_000,
-                 # help='Maximum S2 area (in PE)'),
-    
 )
 
 
@@ -1126,7 +1118,7 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4.24'
+    __version__ = '0.0.4.29'
     depends_on = ('events', 'peaks', 'peak_basics')
   
   
@@ -1156,11 +1148,15 @@ class SpKrypton(strax.LoopPlugin):
                    'n_peaks_large'), np.int16),
                 (('timestamps of first 20 large peaks',
                    'time_large_peaks'), np.int64, 20),
+                (('midpoint times of first 20 large peaks',
+                   'time_mp_large_peaks'), np.int64, 20),
                    
                    
                 # simple booleans to base selection on
                 (('wheter the event is a krypton event (2 S1s + 1 or 2 S2s)',
                    'is_event'), np.bool),
+                (('wheter the S1s got split or not',
+                   's1_split'), np.bool),
                 (('wheter the S2s got split or not',
                    's2_split'), np.bool),
                 (('wheter minimum peaks are found',
@@ -1303,8 +1299,10 @@ class SpKrypton(strax.LoopPlugin):
         # export large peaks for easy investigations
         result["n_peaks_large"] = len(peaks_large)
         result["time_large_peaks"] = [-1]*20
+        result["time_mp_large_peaks"] = [-1]*20
         for i, p in enumerate(peaks_large[:20]):
             result["time_large_peaks"][i] = p["time"]
+            result["time_mp_large_peaks"][i] = p["time_to_midpoint"]
         
         
         
@@ -1312,6 +1310,15 @@ class SpKrypton(strax.LoopPlugin):
         # if we have at least one peaks this  is stored as first S1
         S11 = peaks_large[0]
         self.store_peak(p = S11, i = 0, result = result)
+        
+        # fallback for later
+        result["area_s1"] = S11["area"]
+        result["width_s1"] = S11["range_50p_area"]
+        # if S1 is not split the S2s are definitely not split
+        # here we force test later to definitely fail
+        decay1 = -2*self.config["sp_krypton_s1s_dt_max"]
+        
+        
         if S11["area"] > self.config["sp_krypton_s1_area_max"]:
             result["DEVELOPER_fails"][3] = True
         
@@ -1322,22 +1329,31 @@ class SpKrypton(strax.LoopPlugin):
         # if we also have second peak that might be our second S1
         S12 = peaks_large[1]
         self.store_peak(p = S12, i = 1, result = result)
-        
-        if S12["area"] > self.config["sp_krypton_s1_area_max"]:
-            result["DEVELOPER_fails"][4] = True
-        
-        
-        # combined S1 
-        result["area_s1"] = S11["area"] + S12["area"]
-        result["width_s1"] = S11["range_50p_area"] + S12["range_50p_area"]
-        # store first decay for later use 
         decay1 = result["time_peaks"][1] - result["time_peaks"][0]
         result["time_decay_s1"] = decay1
         
+        if S12["area"] > self.config["sp_krypton_s1_area_max"]:
+            result["DEVELOPER_fails"][4] = True
         if (S12["time"] - S11["time"]) > self.config["sp_krypton_s1s_dt_max"]:
             result["DEVELOPER_fails"][5] = True
         if S11["area"] < S12["area"]:
             result["DEVELOPER_fails"][8] = True
+        
+        
+        if (
+                (result["DEVELOPER_fails"][5] is True)
+            ):
+            pass
+            # peak might be S2 instead of S1
+            # come up with logic to test which peak is what
+        
+        
+        else:
+            # combined S1 
+            result["area_s1"] = S11["area"] + S12["area"]
+            result["width_s1"] = S11["range_50p_area"] + S12["range_50p_area"]
+            # store first decay for later use 
+        
         
         
         
@@ -1398,23 +1414,115 @@ class SpKrypton(strax.LoopPlugin):
 
 
 
+@export
+@strax.takes_config(
+    strax.Option('sp_krypton_s1_area_min', default=25,
+                 help='minimum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
+                 help='Maximum drifttime (ns)'),
+)
+@export
+class GaussfitPeaks(strax.Plugin):
+    """
+    Stolen from straxen, extended with risetime. Also replaces
+    aft for nonphysical peaks with nan.
+    """
+    __version__ = "0.0.0.3B"
+    parallel = True
+    depends_on = ('peaks',)
+    
+    dtype_add = [
+        (('fit result single gaus (mu, sigma, A)',
+          'fit_s'), np.float32, 3),
+        (('unceretainty of fit result single gaus (s_mu, s_sigma, s_A)',
+          'sfit_s'), np.float32, 3),
+        (('fit result single gaus 2x(mu, sigma, A)',
+          'fit_d'), np.float32, 6),
+        (('unceretainty of fit result single gaus 2x(s_mu, s_sigma, s_A)',
+          'sfit_d'), np.float32, 6),
+    ]
 
+    def infer_dtype(self):
+        dtype_peaks =  strax.peak_dtype(n_channels=8)
+        dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
+        for x in self.dtype_add:
+            dtype_peaks.append(x)
+        
+        return(dtype_peaks)
+    
+    
+    def sg(self, x, mu, s, A):
+        return(
+            A * np.exp(-((x-mu)**2/(2*s**2)))
+        )
 
+    def dg(self, x, mu1, s1, A1, mu2, s2, A2):
+        return(
+              A1 * np.exp(-((x-mu1)**2/(2*s1**2)))
+            + A2 * np.exp(-((x-mu2)**2/(2*s2**2)))
+        )
+        
+    def fit_gausses(self, p, f = "sg"):
+        x = np.arange(p["length"])*p["dt"]
+        y = p["data"][:p["length"]]
+        
+        if f == "dg":
+            #pars = ["mu1", "s1", "A1", "mu2", "s2", "A2"]
+            p0 = [x[np.argmax(y)], max(x)/20, max(y), x[np.argmax(y)]+500, max(x)/20, max(y)/2]
+            f = self.dg
+        else:
+            #pars = ["mu", "s", "A"]
+            p0 = [x[np.argmax(y)], max(x)/10, max(y)]
+            f = self.sg
+        fit, cov = curve_fit(
+            f,
+            x, y,
+            p0 = p0
+        )
+        sfit = np.diag(cov)**.5
+        
+        return(fit, sfit)
+    
+    iteraton = 0
+    def compute(self, peaks):
+        ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
+        idx = np.nonzero(np.diff(ps["time"]) <= self.config["sp_krypton_max_drifttime_ns"])[0]
+        idx = np.unique(np.append(idx, idx+1))
+        ps = ps[idx]
+        
+        
+        lp = len(ps)
+        slp = len(str(lp))
+        
+        r = np.zeros_like(ps, dtype=self.dtype)
+        for field in ps.dtype.names:
+            r[field] = ps[field]
 
+        self.iteraton += 1
+        print(f"\nchunk: {self.iteraton}")
+        print(f"min peak time: {min(r['time'])}")
+        print(f"keeping {lp} / {len(peaks)} peaks")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+        for i, p in enumerate(ps):
+            if i%50 == 0:
+                print(f"\r  {i:>{slp}}/{len(ps):>{slp}} ", end = "")
+            
+            try:
+                f, sf = self.fit_gausses(p)
+                r[i]["fit_s"] = f
+                r[i]["sfit_s"] = sf
+            except Exception:
+                pass
+            try:
+                f, sf = self.fit_gausses(p, f = "dg")
+                r[i]["fit_d"] = f
+                r[i]["sfit_d"] = sf
+            except Exception:
+                pass
+                
+                
+                
+        return r
 
 
 

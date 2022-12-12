@@ -1427,39 +1427,76 @@ class GaussfitPeaks(strax.Plugin):
     Stolen from straxen, extended with risetime. Also replaces
     aft for nonphysical peaks with nan.
     """
-    __version__ = "0.0.0.3B"
+    __version__ = "0.0.0.6"
     parallel = True
     depends_on = ('peaks',)
     
-    dtype_add = [
-        (('fit result single gaus (mu, sigma, A)',
-          'fit_s'), np.float32, 3),
-        (('unceretainty of fit result single gaus (s_mu, s_sigma, s_A)',
-          'sfit_s'), np.float32, 3),
-        (('fit result single gaus 2x(mu, sigma, A)',
-          'fit_d'), np.float32, 6),
-        (('unceretainty of fit result single gaus 2x(s_mu, s_sigma, s_A)',
-          'sfit_d'), np.float32, 6),
-    ]
-
+    
     def infer_dtype(self):
+        dtype_add = [
+            (('fit result single gaus (mu, sigma, A)',
+              'fit_s'), np.float32, 3),
+            (('unceretainty of fit result single gaus (s_mu, s_sigma, s_A)',
+              'sfit_s'), np.float32, 3),
+            (('fit result single gaus mu, dmu, sigma, A1, A2',
+              'fit_d'), np.float32, 5),
+            (('unceretainty of fit result single gaus mu, dmu, sigma, A1, A2',
+              'sfit_d'), np.float32, 5),
+            (('wheter both fits are OK',
+              'OK_fit'), np.bool),
+            (('better fit (where are the residuals closer to 1, )\n0: at least one fit failed\n1: single gauss\n2: double gauss',
+              'better_fit'), np.int8),
+              
+        ]
+        
+        dtype_add_both = [
+            ('wheter the %gauss% gauss is bad (non finite uncertainties exist)',
+              'bad_fit_', np.bool),
+            ('wheter the %gauss% gaus failed',
+              'fail_fit_', np.bool),
+            ('wheter the %gauss% gaus is OK',
+              'OK_fit_', np.bool),
+            ('sum of squared residuals (divided by degrees of freedom) for the %gauss% gaus',
+              'sum_resid_sqr_fit_', np.float32),
+        ]
+        
+        
+        for descr, fieldname, d_type in (dtype_add_both):
+            for g, label in [("s", "single"), ("d", "double")]:
+                if isinstance(d_type, bool):
+                    dtype_add.append(((descr.replace("%gauss%", label), f'{fieldname}{g}'), np.bool))
+                else:
+                    dtype_add.append(((descr.replace("%gauss%", label), f'{fieldname}{g}'), d_type))
+    
+
         dtype_peaks =  strax.peak_dtype(n_channels=8)
         dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
-        for x in self.dtype_add:
+        for x in dtype_add:
             dtype_peaks.append(x)
         
         return(dtype_peaks)
     
     
+    props_fits = {
+        "s": (
+            ["\\mu", "\\sigma", "A"],
+            ["ns", "ns", "PE"],
+        ),
+        "d": (
+            ["\\mu", "\\Delta\\mu", "\\sigma", "A_1", "A_2"],
+            ["ns", "ns", "ns", "PE", "PE"],
+        )
+    }
+    
     def sg(self, x, mu, s, A):
         return(
             A * np.exp(-((x-mu)**2/(2*s**2)))
         )
-
-    def dg(self, x, mu1, s1, A1, mu2, s2, A2):
+    
+    def dg(self, x, mu, dmu, sigma, A1, A2):
         return(
-              A1 * np.exp(-((x-mu1)**2/(2*s1**2)))
-            + A2 * np.exp(-((x-mu2)**2/(2*s2**2)))
+              A1 * np.exp(-((x-mu)**2/(2*sigma**2)))
+            + A2 * np.exp(-((x-(mu+dmu))**2/(2*sigma**2)))
         )
         
     def fit_gausses(self, p, f = "sg"):
@@ -1467,24 +1504,45 @@ class GaussfitPeaks(strax.Plugin):
         y = p["data"][:p["length"]]
         
         if f == "dg":
-            #pars = ["mu1", "s1", "A1", "mu2", "s2", "A2"]
-            p0 = [x[np.argmax(y)], max(x)/20, max(y), x[np.argmax(y)]+500, max(x)/20, max(y)/2]
+            #pars = [mu, dmu, sigma, A1, A2]
+            p0 = [x[np.argmax(y)], min(x[np.argmax(y)]+150, max(x)*.9), max(x)/20, max(y), max(y)/2]
+            bounds = (
+                (0, 0, 1, 0, 0),
+                (max(x), max(x), max(x), 2*max(y), 2*max(y))
+            )
+            ndf = p["length"] - 5
             f = self.dg
         else:
             #pars = ["mu", "s", "A"]
             p0 = [x[np.argmax(y)], max(x)/10, max(y)]
             f = self.sg
+            ndf = p["length"] - 3
+            bounds = (
+                (0, 0, 0),
+                (max(x), max(x), 2*max(y))
+            )
         fit, cov = curve_fit(
             f,
             x, y,
-            p0 = p0
+            p0 = p0,
+            bounds = bounds,
+            absolute_sigma = True,
         )
-        sfit = np.diag(cov)**.5
         
-        return(fit, sfit)
+        yf = f(x, *fit)
+        sum_resid_sqr = np.sum((y - yf)**2) / ndf
+        
+        sfit = np.diag(cov)**.5
+        bad_fit = not (False not in np.isfinite(sfit))
+        
+        return(fit, sfit, bad_fit, sum_resid_sqr)
     
     iteraton = 0
+    t0 = False
     def compute(self, peaks):
+        if self.t0 is False:
+            self.t0 = peaks[0]["time"]
+        
         ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
         idx = np.nonzero(np.diff(ps["time"]) <= self.config["sp_krypton_max_drifttime_ns"])[0]
         idx = np.unique(np.append(idx, idx+1))
@@ -1499,29 +1557,36 @@ class GaussfitPeaks(strax.Plugin):
             r[field] = ps[field]
 
         self.iteraton += 1
-        print(f"\nchunk: {self.iteraton}")
-        print(f"min peak time: {min(r['time'])}")
-        print(f"keeping {lp} / {len(peaks)} peaks")
-
+        print(f"\rchunk: {self.iteraton:>3}, first peak: {(min(r['time'])-self.t0)*1e-6:10.3f} ms, {lp:>8} / {len(peaks):>8} peaks")
+        
         for i, p in enumerate(ps):
             if i%50 == 0:
                 print(f"\r  {i:>{slp}}/{len(ps):>{slp}} ", end = "")
             
-            try:
-                f, sf = self.fit_gausses(p)
-                r[i]["fit_s"] = f
-                r[i]["sfit_s"] = sf
-            except Exception:
-                pass
-            try:
-                f, sf = self.fit_gausses(p, f = "dg")
-                r[i]["fit_d"] = f
-                r[i]["sfit_d"] = sf
-            except Exception:
-                pass
-                
-                
-                
+            for g in ["s", "d"]:
+                try:
+                    f, sf, bf, resid = self.fit_gausses(p = p, f = f"{g}g")
+                    r[i][f"fit_{g}"] = f
+                    r[i][f"sfit_{g}"] = sf
+                    r[i][f"bad_fit_{g}"] = bf
+                    r[i][f"OK_fit_{g}"] = not bf
+                    r[i][f"sum_resid_sqr_fit_{g}"] = resid
+                    
+                except Exception as e:
+                    print(f"\r  {i:>{slp}}/{len(ps):>{slp}}: {e}")
+                    r[i][f"fail_fit_{g}"] = True
+        
+        r[f"OK_fit"] = r[f"OK_fit_s"] * r[f"OK_fit_d"]
+        ids = r[f"OK_fit"] == True
+        r["better_fit"][ids] = 1+np.argmin(
+            np.abs(
+                1-np.array([
+                    r[ids][f'sum_resid_sqr_fit_s'],
+                    r[ids][f'sum_resid_sqr_fit_d'],
+                ])
+            ),
+        axis = 0)
+        
         return r
 
 

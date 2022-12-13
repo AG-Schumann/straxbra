@@ -1427,100 +1427,107 @@ class GaussfitPeaks(strax.Plugin):
     Stolen from straxen, extended with risetime. Also replaces
     aft for nonphysical peaks with nan.
     """
-    __version__ = "0.0.0.6"
+    __version__ = "0.0.0.6.17"
     parallel = True
     depends_on = ('peaks',)
     
-    
-    def infer_dtype(self):
-        dtype_add = [
-            (('fit result single gaus (mu, sigma, A)',
-              'fit_s'), np.float32, 3),
-            (('unceretainty of fit result single gaus (s_mu, s_sigma, s_A)',
-              'sfit_s'), np.float32, 3),
-            (('fit result single gaus mu, dmu, sigma, A1, A2',
-              'fit_d'), np.float32, 5),
-            (('unceretainty of fit result single gaus mu, dmu, sigma, A1, A2',
-              'sfit_d'), np.float32, 5),
-            (('wheter both fits are OK',
-              'OK_fit'), np.bool),
-            (('better fit (where are the residuals closer to 1, )\n0: at least one fit failed\n1: single gauss\n2: double gauss',
-              'better_fit'), np.int8),
-              
-        ]
-        
-        dtype_add_both = [
-            ('wheter the %gauss% gauss is bad (non finite uncertainties exist)',
-              'bad_fit_', np.bool),
-            ('wheter the %gauss% gaus failed',
-              'fail_fit_', np.bool),
-            ('wheter the %gauss% gaus is OK',
-              'OK_fit_', np.bool),
-            ('sum of squared residuals (divided by degrees of freedom) for the %gauss% gaus',
-              'sum_resid_sqr_fit_', np.float32),
-        ]
-        
-        
-        for descr, fieldname, d_type in (dtype_add_both):
-            for g, label in [("s", "single"), ("d", "double")]:
-                if isinstance(d_type, bool):
-                    dtype_add.append(((descr.replace("%gauss%", label), f'{fieldname}{g}'), np.bool))
-                else:
-                    dtype_add.append(((descr.replace("%gauss%", label), f'{fieldname}{g}'), d_type))
-    
+    # Functions to be fitted
+    # All the functions and secondary functions (for p0 and bounds) are defined below
+    # Evertything is put in a big dictionary to be iterable
 
-        dtype_peaks =  strax.peak_dtype(n_channels=8)
-        dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
-        for x in dtype_add:
-            dtype_peaks.append(x)
-        
-        return(dtype_peaks)
-    
-    
-    props_fits = {
-        "s": (
-            ["\\mu", "\\sigma", "A"],
-            ["ns", "ns", "PE"],
-        ),
-        "d": (
-            ["\\mu", "\\Delta\\mu", "\\sigma", "A_1", "A_2"],
-            ["ns", "ns", "ns", "PE", "PE"],
-        )
-    }
-    
-    def sg(self, x, mu, s, A):
-        return(
-            A * np.exp(-((x-mu)**2/(2*s**2)))
-        )
-    
-    def dg(self, x, mu, dmu, sigma, A1, A2):
+    def sg(x, mu, s, A):
+        return(A * np.exp(-((x-mu)**2/(2*s**2))))
+
+    def dg(x, mu, dmu, sigma, A1, A2):
         return(
               A1 * np.exp(-((x-mu)**2/(2*sigma**2)))
             + A2 * np.exp(-((x-(mu+dmu))**2/(2*sigma**2)))
         )
-        
-    def fit_gausses(self, p, f = "sg"):
+
+    def se(t, tau, mu, A):
+        return(A * 1/(1+np.exp(-t+mu)) * np.exp(-(t)/tau))
+
+    def de(t, tau, mu1, mu2, A1, A2):
+        return(
+              A1 * 1/(1+np.exp(-t+mu1)) * np.exp(-(t)/tau)
+            + A2 * 1/(1+np.exp(-t+mu2)) * np.exp(-(t)/tau)
+        )
+
+
+    # functions for starting parameters based only on x and y data
+    def p0_sg(x, y):
+        return([x[np.argmax(y)], max(x)/10, max(y)])
+
+    def p0_dg(x, y):
+        ids_sorted = np.argsort(y)[::-1]
+        id_max_y = ids_sorted[0]
+        id_second_max = ids_sorted[ids_sorted - id_max_y > 3][0]
+        return([x[id_max_y], x[id_second_max]-x[id_max_y], max(x)/20, y[id_max_y], y[id_second_max]])
+
+    def p0_se(x, y):
+        def se(t, tau):
+            return(np.exp(-(t)/tau))
+        tau_0 = 25 # 2.5 dts
+        id_max_y = np.argmax(y)
+        A =  y[id_max_y]/se(x[id_max_y], tau_0)
+        return([tau_0, x[id_max_y-1], A])
+
+    def p0_de(x, y):
+        def se(t, tau):
+            return(np.exp(-(t)/tau))
+        tau_0 = 25 # 2.5 dts
+        ids_sorted = np.argsort(y)[::-1]
+        id_max_y = ids_sorted[0]
+        A1 =  y[id_max_y]/se(x[id_max_y], tau_0)
+        id_second_max = ids_sorted[ids_sorted - id_max_y > 3][0]
+        A2 =  y[id_second_max]/se(x[id_second_max], tau_0)
+        return([tau_0, x[id_max_y-1], x[id_second_max], A1, A2])
+
+
+    # functions for bounds also based only on x and y data
+    def b_sg(x, y):
+        return(
+            (0, 0, 0),
+            (max(x), max(x), 10*max(y))
+        )
+
+    def b_dg(x, y):
+        return(
+            (0, 0, 0, 0, 0),
+            (max(x), max(x), max(x), 10*max(y), 10*max(y))
+        )
+
+    def b_se(x, y):
+        return(
+            (0, 0, 0),
+            (max(x), max(x), np.inf)
+        )
+
+    def b_de(x, y):
+        return(
+            (0,0,0,0,0),
+            (max(x), max(x), max(x), np.inf, np.inf)
+        )
+
+
+    props_fits = {
+        "sg": ("single gauss", sg, p0_sg, b_sg, ("\\mu", "\\sigma", "A"), ("ns", "ns", "PE")),
+        "dg": ("double gauss", dg, p0_dg, b_dg, ("\\mu", "\\Delta\\mu", "\\sigma", "A_1", "A_2"), ("ns", "ns", "ns", "PE", "PE")),
+        "se": ("single exponential", se, p0_se, b_se, ("\\tau", "\\mu", "A"), ("ns",  "ns", "PE")),
+        "de": ("double exponential", de, p0_de, b_de, ("\\tau", "\\mu_1", "\\mu_2", "A_1", "A_2"), ("ns",  "ns", "ns", "PE", "PE")),
+    }
+    
+    def fit_functions(self, p, ff):
         x = np.arange(p["length"])*p["dt"]
         y = p["data"][:p["length"]]
         
-        if f == "dg":
-            #pars = [mu, dmu, sigma, A1, A2]
-            p0 = [x[np.argmax(y)], min(x[np.argmax(y)]+150, max(x)*.9), max(x)/20, max(y), max(y)/2]
-            bounds = (
-                (0, 0, 1, 0, 0),
-                (max(x), max(x), max(x), 2*max(y), 2*max(y))
-            )
-            ndf = p["length"] - 5
-            f = self.dg
-        else:
-            #pars = ["mu", "s", "A"]
-            p0 = [x[np.argmax(y)], max(x)/10, max(y)]
-            f = self.sg
-            ndf = p["length"] - 3
-            bounds = (
-                (0, 0, 0),
-                (max(x), max(x), 2*max(y))
-            )
+        if ff not in self.props_fits:
+            raise KeyError(f"'{ff}' not found in props_fits")            
+        title, f, p0_f, b_f, pars, units = self.props_fits[ff]
+        p0 = p0_f(x,y)
+        bounds = b_f(x,y)
+        ndf = len(x)-len(pars)
+        
         fit, cov = curve_fit(
             f,
             x, y,
@@ -1536,6 +1543,53 @@ class GaussfitPeaks(strax.Plugin):
         bad_fit = not (False not in np.isfinite(sfit))
         
         return(fit, sfit, bad_fit, sum_resid_sqr)
+    
+    
+    def infer_dtype(self):
+        dtype_peaks =  strax.peak_dtype(n_channels=8)
+        dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
+        
+        dtype_add = [
+            (('wheter all fits are OK',
+              'OK_fit'), np.bool),
+            (('best fit (where are the residuals closer to 1): number corresponds to 1 + index of fit in props_fits',
+              'best_fit'), np.int8),
+        ]
+        for x in dtype_add:
+            dtype_peaks.append(x)
+            
+            
+            
+        dtype_add_all = [
+            ('wheter the %ff% is bad (non finite uncertainties exist)',
+              'bad_fit', np.bool),
+            ('wheter the %ff% failed',
+              'fail_fit', np.bool),
+            ('wheter the %ff% is OK',
+              'OK_fit', np.bool),
+            ('sum of squared residuals (divided by degrees of freedom) for the %ff%',
+              'sum_resid_sqr_fit', np.float32),
+        ]
+        
+        
+        for l, (title, f, p0_f, b_f, pars, units) in self.props_fits.items():
+            dtype_peaks.append(((f'fit result of the {title} fit', f'fit_{l}'), np.float32, len(pars)))
+            dtype_peaks.append(((f'fit uncertainties of the {title} fit', f'sfit_{l}'), np.float32, len(pars)))
+            
+            
+            for descr, fieldname, d_type in (dtype_add_all):
+                if isinstance(d_type, bool):
+                    dtype_peaks.append(((descr.replace("%ff%", title), f'{fieldname}_{l}'), np.bool))
+                else:
+                    dtype_peaks.append(((descr.replace("%ff%", title), f'{fieldname}_{l}'), d_type))
+            
+
+        
+        
+        return(dtype_peaks)
+    
+    
+    
     
     iteraton = 0
     t0 = False
@@ -1558,31 +1612,38 @@ class GaussfitPeaks(strax.Plugin):
 
         self.iteraton += 1
         print(f"\rchunk: {self.iteraton:>3}, first peak: {(min(r['time'])-self.t0)*1e-6:10.3f} ms, {lp:>8} / {len(peaks):>8} peaks")
+            
+        
+        
         
         for i, p in enumerate(ps):
-            if i%50 == 0:
+            if i%100 == 0:
                 print(f"\r  {i:>{slp}}/{len(ps):>{slp}} ", end = "")
             
-            for g in ["s", "d"]:
+            for ff in self.props_fits:
                 try:
-                    f, sf, bf, resid = self.fit_gausses(p = p, f = f"{g}g")
-                    r[i][f"fit_{g}"] = f
-                    r[i][f"sfit_{g}"] = sf
-                    r[i][f"bad_fit_{g}"] = bf
-                    r[i][f"OK_fit_{g}"] = not bf
-                    r[i][f"sum_resid_sqr_fit_{g}"] = resid
+                    f, sf, bf, resid = self.fit_functions(p = p, ff = ff)
+                    r[i][f"fit_{ff}"] = f
+                    r[i][f"sfit_{ff}"] = sf
+                    r[i][f"bad_fit_{ff}"] = bf
+                    r[i][f"OK_fit_{ff}"] = not bf
+                    r[i][f"sum_resid_sqr_fit_{ff}"] = resid
                     
                 except Exception as e:
-                    print(f"\r  {i:>{slp}}/{len(ps):>{slp}}: {e}")
-                    r[i][f"fail_fit_{g}"] = True
+                    if i < 10:
+                        print(f"\r  {i:>{slp}}/{len(ps):>{slp}} {ff}: {e}")
+                    r[i][f"fail_fit_{ff}"] = True
+                    r[i][f"sum_resid_sqr_fit_{ff}"] = np.inf
         
-        r[f"OK_fit"] = r[f"OK_fit_s"] * r[f"OK_fit_d"]
+        r[f"OK_fit"] = r[f"OK_fit_sg"] * r[f"OK_fit_dg"]* r[f"OK_fit_se"]* r[f"OK_fit_de"]
         ids = r[f"OK_fit"] == True
-        r["better_fit"][ids] = 1+np.argmin(
+        r["best_fit"][ids] = 1+np.argmin(
             np.abs(
                 1-np.array([
-                    r[ids][f'sum_resid_sqr_fit_s'],
-                    r[ids][f'sum_resid_sqr_fit_d'],
+                    r[ids][f'sum_resid_sqr_fit_sg'],
+                    r[ids][f'sum_resid_sqr_fit_dg'],
+                    r[ids][f'sum_resid_sqr_fit_se'],
+                    r[ids][f'sum_resid_sqr_fit_de'],
                 ])
             ),
         axis = 0)

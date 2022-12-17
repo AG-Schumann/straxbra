@@ -1427,7 +1427,9 @@ class GaussfitPeaks(strax.Plugin):
     Stolen from straxen, extended with risetime. Also replaces
     aft for nonphysical peaks with nan.
     """
-    __version__ = "0.0.0.6.17"
+    __version__ = "0.0.0.6.45"
+    # all data run with versions: 0.0.0.6.41
+    # latest version: 0.0.0.6.44
     parallel = True
     depends_on = ('peaks',)
     
@@ -1444,13 +1446,13 @@ class GaussfitPeaks(strax.Plugin):
             + A2 * np.exp(-((x-(mu+dmu))**2/(2*sigma**2)))
         )
 
-    def se(t, tau, mu, A):
-        return(A * 1/(1+np.exp(-t+mu)) * np.exp(-(t)/tau))
+    def se(t, tau, mu, A, a):
+        return(A * 1/(1+np.exp(a*(-t+mu))) * np.exp(-(t)/tau))
 
-    def de(t, tau, mu1, mu2, A1, A2):
+    def de(t, tau, mu, dmu, A1, A2, a):
         return(
-              A1 * 1/(1+np.exp(-t+mu1)) * np.exp(-(t)/tau)
-            + A2 * 1/(1+np.exp(-t+mu2)) * np.exp(-(t)/tau)
+              A1 * 1/(1+np.exp(a*(-t+mu))) * np.exp(-(t)/tau)
+            + A2 * 1/(1+np.exp(a*(-t+mu+dmu))) * np.exp(-(t)/tau)
         )
 
 
@@ -1470,7 +1472,7 @@ class GaussfitPeaks(strax.Plugin):
         tau_0 = 25 # 2.5 dts
         id_max_y = np.argmax(y)
         A =  y[id_max_y]/se(x[id_max_y], tau_0)
-        return([tau_0, x[id_max_y-1], A])
+        return([tau_0, x[id_max_y-1], A, .2])
 
     def p0_de(x, y):
         def se(t, tau):
@@ -1481,7 +1483,7 @@ class GaussfitPeaks(strax.Plugin):
         A1 =  y[id_max_y]/se(x[id_max_y], tau_0)
         id_second_max = ids_sorted[ids_sorted - id_max_y > 3][0]
         A2 =  y[id_second_max]/se(x[id_second_max], tau_0)
-        return([tau_0, x[id_max_y-1], x[id_second_max], A1, A2])
+        return([tau_0, x[id_max_y-1], x[id_second_max-1]-x[id_max_y-1], A1, A2, .2])
 
 
     # functions for bounds also based only on x and y data
@@ -1499,22 +1501,22 @@ class GaussfitPeaks(strax.Plugin):
 
     def b_se(x, y):
         return(
-            (0, 0, 0),
-            (max(x), max(x), np.inf)
+            (0, 0, 0,.111),
+            (max(x), max(x), np.inf, np.inf)
         )
 
     def b_de(x, y):
         return(
-            (0,0,0,0,0),
-            (max(x), max(x), max(x), np.inf, np.inf)
+            (0,0,0,0,0,.111),
+            (max(x), max(x), max(x), np.inf, np.inf, np.inf)
         )
 
 
     props_fits = {
         "sg": ("single gauss", sg, p0_sg, b_sg, ("\\mu", "\\sigma", "A"), ("ns", "ns", "PE")),
         "dg": ("double gauss", dg, p0_dg, b_dg, ("\\mu", "\\Delta\\mu", "\\sigma", "A_1", "A_2"), ("ns", "ns", "ns", "PE", "PE")),
-        "se": ("single exponential", se, p0_se, b_se, ("\\tau", "\\mu", "A"), ("ns",  "ns", "PE")),
-        "de": ("double exponential", de, p0_de, b_de, ("\\tau", "\\mu_1", "\\mu_2", "A_1", "A_2"), ("ns",  "ns", "ns", "PE", "PE")),
+        "se": ("single exponential", se, p0_se, b_se, ("\\tau", "\\mu", "A", "a"), ("ns",  "ns", "PE", "")),
+        "de": ("double exponential", de, p0_de, b_de, ("\\tau", "\\mu", "\\Delta\\mu", "A_1", "A_2", "a"), ("ns",  "ns", "ns", "PE", "PE", "")),
     }
     
     def fit_functions(self, p, ff):
@@ -1550,8 +1552,7 @@ class GaussfitPeaks(strax.Plugin):
         dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
         
         dtype_add = [
-            (('wheter all fits are OK',
-              'OK_fit'), np.bool),
+            (('wheter all fits are OK', 'OK_fits'), np.bool_),
             (('best fit (where are the residuals closer to 1): number corresponds to 1 + index of fit in props_fits',
               'best_fit'), np.int8),
         ]
@@ -1560,28 +1561,19 @@ class GaussfitPeaks(strax.Plugin):
             
             
             
-        dtype_add_all = [
-            ('wheter the %ff% is bad (non finite uncertainties exist)',
-              'bad_fit', np.bool),
-            ('wheter the %ff% failed',
-              'fail_fit', np.bool),
-            ('wheter the %ff% is OK',
-              'OK_fit', np.bool),
-            ('sum of squared residuals (divided by degrees of freedom) for the %ff%',
-              'sum_resid_sqr_fit', np.float32),
+        dtype_add_each = [
+            (('wheter the %ff% is bad (non finite uncertainties exist)','bad_fit'), np.bool_),
+            (('wheter the %ff% failed','fail_fit'), np.bool_),
+            (('wheter the %ff% is OK','OK_fit'), np.bool_),
+            (('sum of squared residuals (divided by degrees of freedom) for the %ff%', 'sum_resid_sqr_fit'), np.float32),
+              
         ]
-        
-        
         for l, (title, f, p0_f, b_f, pars, units) in self.props_fits.items():
             dtype_peaks.append(((f'fit result of the {title} fit', f'fit_{l}'), np.float32, len(pars)))
             dtype_peaks.append(((f'fit uncertainties of the {title} fit', f'sfit_{l}'), np.float32, len(pars)))
             
-            
-            for descr, fieldname, d_type in (dtype_add_all):
-                if isinstance(d_type, bool):
-                    dtype_peaks.append(((descr.replace("%ff%", title), f'{fieldname}_{l}'), np.bool))
-                else:
-                    dtype_peaks.append(((descr.replace("%ff%", title), f'{fieldname}_{l}'), d_type))
+            for (descr, fieldname), d_type in (dtype_add_each):
+                dtype_peaks.append(((descr.replace("%ff%", title), f'{fieldname}_{l}'), d_type))
             
 
         
@@ -1590,11 +1582,12 @@ class GaussfitPeaks(strax.Plugin):
     
     
     
-    
     iteraton = 0
     t0 = False
     def compute(self, peaks):
         if self.t0 is False:
+            names_fits = ", ".join([title for title, *_ in self.props_fits.values()])
+            print(f"\33[1mfitting:\33[0m {names_fits}")
             self.t0 = peaks[0]["time"]
         
         ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
@@ -1628,28 +1621,345 @@ class GaussfitPeaks(strax.Plugin):
                     r[i][f"bad_fit_{ff}"] = bf
                     r[i][f"OK_fit_{ff}"] = not bf
                     r[i][f"sum_resid_sqr_fit_{ff}"] = resid
-                    
+                    pass
                 except Exception as e:
                     if i < 10:
                         print(f"\r  {i:>{slp}}/{len(ps):>{slp}} {ff}: {e}")
                     r[i][f"fail_fit_{ff}"] = True
                     r[i][f"sum_resid_sqr_fit_{ff}"] = np.inf
         
-        r[f"OK_fit"] = r[f"OK_fit_sg"] * r[f"OK_fit_dg"]* r[f"OK_fit_se"]* r[f"OK_fit_de"]
-        ids = r[f"OK_fit"] == True
-        r["best_fit"][ids] = 1+np.argmin(
-            np.abs(
-                1-np.array([
-                    r[ids][f'sum_resid_sqr_fit_sg'],
-                    r[ids][f'sum_resid_sqr_fit_dg'],
-                    r[ids][f'sum_resid_sqr_fit_se'],
-                    r[ids][f'sum_resid_sqr_fit_de'],
-                ])
-            ),
-        axis = 0)
+        r[f"OK_fits"] = False
+        for ni, n in enumerate([f"OK_fit_{n}" for n in self.props_fits]):
+            if ni == 0:
+                r[f"OK_fits"] = r[n]
+            else:
+                r[f"OK_fits"] *= r[n]
+        
+        ids = r[f"OK_fits"] == True
+
+        # get best fit  
+        #r["best_fit"] = 1+np.argmin(np.abs([1-r[f"sum_resid_sqr_fit_{n}"] for n in self.props_fits]), axis=0)
+        
+        # new version
+        def inf(bools = [True]):
+            out = np.zeros(len(bools))
+            out[bools] = np.inf
+            return(out)
+
+        sg = r["sum_resid_sqr_fit_sg"] + inf(~r["OK_fit_sg"])
+        dg = r["sum_resid_sqr_fit_dg"] + inf(~r["OK_fit_dg"])
+        se = r["sum_resid_sqr_fit_se"] + inf(~r["OK_fit_se"])
+        de = r["sum_resid_sqr_fit_de"] + inf(~r["OK_fit_de"])
+
+
+        # base idea: fail tests that check which fit is better and prevent the offset for the worse fit
+
+        # if gauss is better (lower) we fail this test and do not get the offset by two later
+        bg = np.min([sg, dg], axis = 0) > np.min([se, de], axis = 0)
+
+        g = np.abs(1-sg) > np.abs(1-dg)
+        e = np.abs(1-se) > np.abs(1-de)
+        r["best_fit"] = 1 + bg*2 + bg*g + ~bg*e
         
         return r
 
+
+
+
+
+@export
+class GaussfitEvents(strax.LoopPlugin):
+    """
+    stolen from SPKrypton
+    """
+    __version__ = '0.0.0.11'
+    depends_on = ('events', 'gaussfit_peaks')
+  
+    def infer_dtype(self):
+        dtype = [
+            (("wheter the event is OK or not", "OK"), np.bool),
+            (("which tests the event fails", "fails"), np.bool, 8),
+            (("time of first 20 large peaks", "t_peaks"), np.int64, 20),
+            (("nuber of peaks in this event", "n_peaks"), np.int8),
+            (("number of peaks where best fit is 0,1,2,3,4,5", "n_fit_best"), np.int8, 5),
+            (("number of potential S1s and S2s", "n_Ss"), np.int8, 2),
+            # (("all peak ids where best fit is 3 or 4", "ids_exp"), np.int8, 20),
+            # (("all peak ids where best fit is 1 or 2", "ids_gauss"), np.int8, 20),
+            (("time between S1s", "dt_s1"), np.float32),
+            (("time between S2s", "dt_s2"), np.float32),
+            (("area of first S2 (from integrating fit)", "area_s21"), np.float32),
+            (("area of second S2 (from integrating fit)", "area_s22"), np.float32),
+            (("width of first S2 (sigma from fit)", "width_s21"), np.float32),
+            (("width of second S2 (sigma from fit)", "width_s22"), np.float32),
+        ]
+
+        return dtype
+    def compute_loop(self, event, peaks):
+        ps = peaks
+        r = {
+            "OK": False,
+            "fails" : [0]*8,
+            "n_fit_best": [-1]*5,
+            "n_peaks": len(ps),
+            "t_peaks": [-1]*20,
+        }
+        for i, p in enumerate(ps[:20]):
+            r["t_peaks"][i] = p["time"]
+        
+        
+        if r["n_peaks"] == 0:
+            # if there are 0 peaks in the event we dont care about it
+            r["fails"][0] = True
+            return(r)
+        
+        
+        
+        if r["n_peaks"] < 2:
+            # we want at least two peaks at all to have chance to have 4 Signals
+            r["fails"][1] = True
+
+        
+        for i in range(5):
+            r["n_fit_best"][i] = np.sum(peaks["best_fit"] == i)
+        r["n_Ss"] = [
+            r["n_fit_best"][3] + r["n_fit_best"][4]*2,
+            r["n_fit_best"][1] + r["n_fit_best"][2]*2    
+        ]
+        if (r["n_Ss"][0] < 2) or (r["n_Ss"][1] < 2):
+            # we want at least two S1s and 
+            r["fails"][2] = True
+        
+        if True not in r["fails"]:
+            r["OK"] = True
+        return(r)
+    
+
+
+@export
+@strax.takes_config(
+    strax.Option('sp_krypton_s1_area_min', default=25,
+                 help='minimum area for a peak to potentially be a S1'),
+)
+@export
+class EventFits(strax.LoopPlugin):
+    """
+    stolen from SPKrypton
+    """
+    __version__ = '0.0.0.10'
+    depends_on = ('events', 'peaks')
+  
+    f_event_pars = ["t_\mathrm{{S11}}", "t_\mathrm{{decay}}", "t_\mathrm{{drift'}}", "\\tau", "a", "\\sigma", "A_\\mathrm{{S11}}", "A_\\mathrm{{S12}}", "A_\\mathrm{{S21}}", "A_\\mathrm{{S22}}", "dt_\\mathrm{{offset}}"]
+    f_event_exp_pars = ["t_0", "\\tau", "a", "A"]
+    f_event_gauss_pars = ["t_0", "\\sigma", "A"]
+
+
+    def build_event_waveform(self, ps):
+        t0 = ps[0]["time"]
+
+        ets = np.array([])
+        ewf = np.array([])
+
+
+        for p in ps:
+            t_offs = p["time"]-t0
+
+            t_end = max([0, *ets])
+            dt = t_offs - t_end
+            if dt > 25:
+                t_insert = np.arange(t_end+10, t_offs-10 , 10)
+                dataz = np.zeros_like(t_insert)
+                ets = np.append(ets, t_insert)
+                ewf = np.append(ewf, dataz)
+
+            ets = np.append(ets, t_offs+np.arange(0,p["length"])*p["dt"])
+            # important norm peaks to PE/ns instead of PE/sample
+            # some wide peaks have more than 10 ns sample width
+            # this helps us with integration later
+            ewf = np.append(ewf, p["data"][:p["length"]]/p["dt"])
+        return(ets, ewf)
+
+    def f_event(self, t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset):
+        t_S12 = t_S11 + t_decay
+        t_S21 = t_S12 + t_drift
+        t_S22 = t_S21 + t_decay + dct_offset
+        return(
+              A1 * 1/(1+np.exp((t_S11-t)/a)) * np.exp((t_S11-t)/tau)
+            + A2 * 1/(1+np.exp((t_S12-t)/a)) * np.exp((t_S12-t)/tau)
+            + A3 * np.exp(-((t-t_S21)**2/(2*sigma**2)))
+            + A3*A4 * np.exp(-((t-t_S22)**2/(2*sigma**2)))
+        )
+
+    def f_event_exp(t, t_0, tau, a, A):
+        return(A * 1/(1+np.exp((t_0-t)/a)) * np.exp((t_0-t)/tau))
+
+    def f_event_gauss(t, t_0, sigma, A):
+        return(A * np.exp(-((t-t_0)**2/(2*sigma**2))))
+
+    sep_props = {
+        "event": (f_event, f_event_pars),
+        "s1": (f_event_exp, f_event_exp_pars),
+        "s2": (f_event_gauss, f_event_gauss_pars),
+    }
+
+
+    def f_event_p0(self, ets, ewf, ps):
+        
+        widest_peak = ps[np.argmax(ps["width"][:,5])]
+        
+        t_S11 = ps[0]["time_to_midpoint"]
+        t_decay = 150
+        t_drift = widest_peak["time"]-ps[0]["time"]
+        tau = 25
+        a = 10
+        sigma = widest_peak["width"][5]
+        A1 = 5
+        A2 = 5
+        A3 = 5
+        A4 = .2
+        dct_offset = 0
+        return(t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
+
+    def f_event_bounds(self, ets, ewf, ps):
+        
+        max_width = 10*np.max(ps["width"])
+        
+        
+        #     t_S11, t_decay, t_drift, tau,  a,     sigma,   A1,   A2,    A3,  A4
+        l = (     0,      10,    100,   0,   0,        10,   .1,  .1,    .1,  .0, -50)
+        u = (50_000,    2500, 50_000, 100,  20, max_width, 12.5,  10, 100,   .9, 50)
+        
+        return((l,u))
+
+
+    def f_event_separate_vars(self, fit, sfit):
+        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
+        st_S11, st_decay, st_drift, stau, sa, ssigma, sA1, sA2, sA3, sA4, sdct_offset = sfit
+        return({
+            "s11": (
+                (t_S11, tau, a, A1),
+                (st_S11, stau, sa, sA1)
+                ),
+            "s12": (
+                (t_S11+t_decay, tau, a, A2),
+                ((st_S11**2+st_decay**2)**.5, stau, sa, sA2),
+            ),
+            "s21": (
+                (t_S11+t_decay+t_drift, sigma, A3),
+                ((st_S11**2+st_decay**2+st_drift**2)**.5, ssigma, sA3),
+            ),
+            "s22": (
+                (t_S11+2*t_decay+t_drift+dct_offset, sigma, A3*A4),
+                ((st_S11**2+4*st_decay**2+st_drift**2+dct_offset**.5)**.5, ssigma, sA3*A4+sA4*A3),
+            ),
+        })
+  
+  
+    def infer_dtype(self):
+        dtype = [
+            (("wheter the event is OK or not", "OK"), np.bool),
+            (("which tests the event fails", "fails"), np.bool, 8),
+            (("time of first 20 large peaks", "t_peaks"), np.int64, 20),
+            
+            (("nuber of peaks in this event", "n_peaks"), np.int8),
+            (("fit results", "fit"), np.float32, 11),
+            (("fit uncertaintys", "sfit"), np.float32, 11),
+            
+            (("time of maximum of peak", "t_max"), np.float32, 4),
+            (("time of middle of peak", "t_mid"), np.float32, 4),
+            
+            (("signal widths", "widths"), np.float32, 4),
+            (("signal areas", "areas"), np.float32, 4),
+            (("drift time (via t_mid)", "drifttime"), np.float32),
+            (("decay time (via t_mid)", "decaytime"), np.float32),
+            (("drift time (via t_max)", "drifttime_max"), np.float32),
+            (("decay time (via t_max)", "decaytime_max"), np.float32),
+            (("drift time (via mu from fit)", "drifttime_fit"), np.float32),
+            (("decay time (via mu from fit)", "decaytime_fit"), np.float32),
+            
+            
+        ]
+
+        return dtype
+        
+    iteration = 0
+    fits_ok = 0
+    def compute_loop(self, event, peaks):
+        self.iteration = self.iteration+1
+        print(f"\r{self.iteration} (OK: {self.fits_ok})", end = "")
+    
+        r = {
+            "fails": [-1]*8,
+            "t_peaks": [-1]*20,
+            "widths": [-1]*4,
+            "areas": [-1]*4,
+            "t_max": [-1]*4,
+            "t_mid": [-1]*4,
+        }
+        
+        ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
+        r["n_peaks"] = len(ps)
+        for i, p in enumerate(ps[:20]):
+            r["t_peaks"][i] = p["time"]
+        
+        if len(ps) < 2:
+            r["fails"][0] = True
+            return(r)
+        
+        ets, ewf = self.build_event_waveform(ps)
+        p0 = self.f_event_p0(ets, ewf, ps)
+        bounds = self.f_event_bounds(ets, ewf, ps)
+        
+        try:
+            fit, cov = curve_fit(
+                self.f_event,
+                ets,
+                ewf,
+                p0 = p0,
+                bounds = bounds
+            ) 
+            sfit = np.diag(cov)**.5
+            r["fit"] = fit
+            r["sfit"] = sfit
+        except Exception:
+            r["fails"][1] = True
+            return(r)
+        
+        
+        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
+        sep = self.f_event_separate_vars(fit, sfit)
+        for i, (l, (fit_, sfit_)) in enumerate(sep.items()):
+            t0 = fit_[0] - 10*fit_[1]
+            t1 = fit_[0] + 10*fit_[1]
+            f, pars  = self.sep_props[l[:2]]
+            
+            t = np.linspace(t0, t1, 1000)
+            tw = np.diff(t)[0]
+            yf = f(t, *fit_)
+            area = np.sum(yf*tw)
+            af = np.cumsum(yf*tw)/area
+            
+            t0, t_mid, t1 = np.interp([.25, .5, .75], af, t)
+            width = t1-t0
+            
+            r["areas"][i] = area
+            r["widths"][i] = width
+            r["t_mid"][i] = t_mid
+            r["t_max"][i] = t[np.argmax(yf)]
+        
+        r["drifttime"] = (r["t_mid"][3]-r["t_mid"][0])/1000
+        r["decaytime"] = r["t_mid"][1]-r["t_mid"][0]
+              
+        r["drifttime_max"] = (r["t_max"][3]-r["t_max"][0])/1000
+        r["decaytime_max"] = r["t_max"][1]-r["t_max"][0]
+        
+        r["drifttime_fit"] = (t_S11 + t_decay + t_drift)/1000
+        r["decaytime_fit"] = t_decay
+        
+        r["OK"] = True
+        self.fits_ok = self.fits_ok+1
+        
+        return(r)
+    
 
 
 

@@ -8,6 +8,7 @@ from scipy.optimize import curve_fit
 import numba
 
 from . import utils
+from . import exp_fit_functions as eff
 import strax
 
 export, __all__ = strax.exporter()
@@ -1118,7 +1119,7 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4.29'
+    __version__ = '0.0.4.30'
     depends_on = ('events', 'peaks', 'peak_basics')
   
   
@@ -1140,6 +1141,11 @@ class SpKrypton(strax.LoopPlugin):
 
                 # general Info about event
                 # helps to get all peaks and plot them
+                (('timestamp of the base event',
+                   'time'), np.int64),
+                (('endtimestamp of the base event',
+                   'endtime'), np.int64),                
+            
                 (('timestamp of the first peak in the event (ns)',
                    'time_event'), np.int64),
                 (('number of peaks in the event',
@@ -1279,6 +1285,8 @@ class SpKrypton(strax.LoopPlugin):
     def compute_loop(self, event, peaks):
         
         result = {}
+        result["time"] = event["time"]
+        result["endtime"] = event["endtime"]
         result["n_peaks"] = len(peaks)
         result["time_event"] = peaks[0]["time"]
         # initialize multipeak variables
@@ -1412,7 +1420,122 @@ class SpKrypton(strax.LoopPlugin):
         return(result)
 
 
+# Other settigns are already defined for EventsSinglePhaseKryptonBasics
+@export
+@strax.takes_config(
+    strax.Option('sp_krypton_s1_area_min', default=25,
+                 help='minimum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_s1_area_max', default=400,
+                 help='maximum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_s1s_dt_max', default=1500,
+                 help='maximum time difference beetween 2 peaks'
+                      'to be considered two S1s'),
+    strax.Option('sp_krypton_dt_s1s_s2s_max', default=50,
+                 help='how much the S2s are allowed to be further aparth than the S1s'
+                      'to be considered two S1s'),
+    strax.Option('sp_krypton_min_drifttime_ns', default=0,
+                 help='Minimum Drifttime (ns)'),
+    strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
+                 help='Maximum drifttime (ns)'),
+)
 
+
+
+@export
+class SPKryptonS2Fits(strax.LoopPlugin):
+    """
+    fits gaussions on S2s 
+    """
+    __version__ = '0.0.0.20'
+    depends_on = (
+        #'events',
+        'sp_krypton', 'peaks'
+    )
+  
+    
+    def infer_dtype(self):
+        dtype = [
+            (("first S2s area",    "area_S21"), np.float32),
+            (("first S2s width",  "width_S21"), np.float32),
+            (("second S2s area",   "area_S22"), np.float32),
+            (("second S2s width", "width_S22"), np.float32),
+            (("wheter the event is an event", "is_event"), np.bool_),
+            (("wheter the fit went OK", "OK"), np.bool_),
+            (('timestamp of the base event', 'time'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
+        ]
+
+        return dtype
+              
+    iteration = 0
+    def compute_loop(self, event, peaks):
+        self.iteration += 1
+        print(f"\r{self.iteration} ", end = "")
+        
+        r = {}
+        
+        r["time"] = event["time"]
+        r["endtime"] = event["endtime"]
+        r["is_event"] = event["is_event"],
+        r["OK"] = False
+        
+        t_decay = event["time_decay_s1"]
+        S21_width = event["width_s21"]
+        ps = peaks[np.in1d(peaks["time"], event["time_signals"][2:])]
+        
+        
+        try:
+            ets, ewf = eff.build_event_waveform(ps)
+            
+            fit, sfit = eff.fit_S2(ets, ewf, t_decay, S21_width)
+            t_S21, t_decay, sigma, A1, A2 = fit
+            t_S22 = t_S21+t_decay
+            S21_props = eff.get_aw(eff.f_event_gauss, pars = (t_S21, sigma, A1))
+            S22_props = eff.get_aw(eff.f_event_gauss, pars = (t_S22, sigma, A2))
+
+            r["area_S21"] =  S21_props[0]
+            r["area_S22"] =  S22_props[0]
+            r["width_S21"] =  S21_props[1]
+            r["width_S22"] =  S22_props[1]
+            r["OK"]  = True
+        except Exception as e:
+            pass
+#             print(f" {e}")
+        return(r)
+
+    
+
+    
+@export
+@strax.takes_config(
+    strax.Option('sp_krypton_s1_area_min', default=25,
+                 help='minimum area for a peak to potentially be a S1'),
+    strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
+                 help='Maximum drifttime (ns)'),
+)
+@export
+class PeaksLarge(strax.Plugin):
+    """
+    just returns the largest peaks
+    """
+    __version__ = "0.0.0.1"
+    parallel = True
+    depends_on = ('peaks',)
+
+    def infer_dtype(self):
+        dtype_peaks =  strax.peak_dtype(n_channels=8)
+        dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
+    
+        return(dtype_peaks)
+    
+    
+    def compute(self, peaks):
+        ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
+        idx = np.nonzero(np.diff(ps["time"]) <= self.config["sp_krypton_max_drifttime_ns"])[0]
+        idx = np.unique(np.append(idx, idx+1))
+        ps = ps[idx]
+        
+        return(ps)
 
 @export
 @strax.takes_config(
@@ -1745,114 +1868,11 @@ class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.10'
+    __version__ = '0.0.0.21'
+    # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
   
-    f_event_pars = ["t_\mathrm{{S11}}", "t_\mathrm{{decay}}", "t_\mathrm{{drift'}}", "\\tau", "a", "\\sigma", "A_\\mathrm{{S11}}", "A_\\mathrm{{S12}}", "A_\\mathrm{{S21}}", "A_\\mathrm{{S22}}", "dt_\\mathrm{{offset}}"]
-    f_event_exp_pars = ["t_0", "\\tau", "a", "A"]
-    f_event_gauss_pars = ["t_0", "\\sigma", "A"]
-
-
-    def build_event_waveform(self, ps):
-        t0 = ps[0]["time"]
-
-        ets = np.array([])
-        ewf = np.array([])
-
-
-        for p in ps:
-            t_offs = p["time"]-t0
-
-            t_end = max([0, *ets])
-            dt = t_offs - t_end
-            if dt > 25:
-                t_insert = np.arange(t_end+10, t_offs-10 , 10)
-                dataz = np.zeros_like(t_insert)
-                ets = np.append(ets, t_insert)
-                ewf = np.append(ewf, dataz)
-
-            ets = np.append(ets, t_offs+np.arange(0,p["length"])*p["dt"])
-            # important norm peaks to PE/ns instead of PE/sample
-            # some wide peaks have more than 10 ns sample width
-            # this helps us with integration later
-            ewf = np.append(ewf, p["data"][:p["length"]]/p["dt"])
-        return(ets, ewf)
-
-    def f_event(self, t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset):
-        t_S12 = t_S11 + t_decay
-        t_S21 = t_S12 + t_drift
-        t_S22 = t_S21 + t_decay + dct_offset
-        return(
-              A1 * 1/(1+np.exp((t_S11-t)/a)) * np.exp((t_S11-t)/tau)
-            + A2 * 1/(1+np.exp((t_S12-t)/a)) * np.exp((t_S12-t)/tau)
-            + A3 * np.exp(-((t-t_S21)**2/(2*sigma**2)))
-            + A3*A4 * np.exp(-((t-t_S22)**2/(2*sigma**2)))
-        )
-
-    def f_event_exp(t, t_0, tau, a, A):
-        return(A * 1/(1+np.exp((t_0-t)/a)) * np.exp((t_0-t)/tau))
-
-    def f_event_gauss(t, t_0, sigma, A):
-        return(A * np.exp(-((t-t_0)**2/(2*sigma**2))))
-
-    sep_props = {
-        "event": (f_event, f_event_pars),
-        "s1": (f_event_exp, f_event_exp_pars),
-        "s2": (f_event_gauss, f_event_gauss_pars),
-    }
-
-
-    def f_event_p0(self, ets, ewf, ps):
-        
-        widest_peak = ps[np.argmax(ps["width"][:,5])]
-        
-        t_S11 = ps[0]["time_to_midpoint"]
-        t_decay = 150
-        t_drift = widest_peak["time"]-ps[0]["time"]
-        tau = 25
-        a = 10
-        sigma = widest_peak["width"][5]
-        A1 = 5
-        A2 = 5
-        A3 = 5
-        A4 = .2
-        dct_offset = 0
-        return(t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
-
-    def f_event_bounds(self, ets, ewf, ps):
-        
-        max_width = 10*np.max(ps["width"])
-        
-        
-        #     t_S11, t_decay, t_drift, tau,  a,     sigma,   A1,   A2,    A3,  A4
-        l = (     0,      10,    100,   0,   0,        10,   .1,  .1,    .1,  .0, -50)
-        u = (50_000,    2500, 50_000, 100,  20, max_width, 12.5,  10, 100,   .9, 50)
-        
-        return((l,u))
-
-
-    def f_event_separate_vars(self, fit, sfit):
-        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
-        st_S11, st_decay, st_drift, stau, sa, ssigma, sA1, sA2, sA3, sA4, sdct_offset = sfit
-        return({
-            "s11": (
-                (t_S11, tau, a, A1),
-                (st_S11, stau, sa, sA1)
-                ),
-            "s12": (
-                (t_S11+t_decay, tau, a, A2),
-                ((st_S11**2+st_decay**2)**.5, stau, sa, sA2),
-            ),
-            "s21": (
-                (t_S11+t_decay+t_drift, sigma, A3),
-                ((st_S11**2+st_decay**2+st_drift**2)**.5, ssigma, sA3),
-            ),
-            "s22": (
-                (t_S11+2*t_decay+t_drift+dct_offset, sigma, A3*A4),
-                ((st_S11**2+4*st_decay**2+st_drift**2+dct_offset**.5)**.5, ssigma, sA3*A4+sA4*A3),
-            ),
-        })
-  
+    
   
     def infer_dtype(self):
         dtype = [
@@ -1864,17 +1884,24 @@ class EventFits(strax.LoopPlugin):
             (("fit results", "fit"), np.float32, 11),
             (("fit uncertaintys", "sfit"), np.float32, 11),
             
+            (("fit results for S1 fit", "fit_S1"), np.float32, 6),
+            (("fit uncertaintys for S1 fit", "sfit_S1"), np.float32, 6),
+            (("fit results for S2 fit", "fit_S2"), np.float32, 6),
+            (("fit uncertaintys for S2 fit", "sfit_S2"), np.float32, 6),
+            
             (("time of maximum of peak", "t_max"), np.float32, 4),
             (("time of middle of peak", "t_mid"), np.float32, 4),
-            
             (("signal widths", "widths"), np.float32, 4),
             (("signal areas", "areas"), np.float32, 4),
-            (("drift time (via t_mid)", "drifttime"), np.float32),
-            (("decay time (via t_mid)", "decaytime"), np.float32),
-            (("drift time (via t_max)", "drifttime_max"), np.float32),
-            (("decay time (via t_max)", "decaytime_max"), np.float32),
-            (("drift time (via mu from fit)", "drifttime_fit"), np.float32),
-            (("decay time (via mu from fit)", "decaytime_fit"), np.float32),
+            (("drift time", "drifttime"), np.float32),
+            (("decay time", "decaytime"), np.float32),
+            
+            (("time of maximum of peak (based on individual fits)", "t_max_2"), np.float32, 4),
+            (("time of middle of peak (based on individual fits)", "t_mid_2"), np.float32, 4),
+            (("signal widths (based on individual fits)", "widths_2"), np.float32, 4),
+            (("signal areas (based on individual fits)", "areas_2"), np.float32, 4),
+            (("drift time (based on individual fits)", "drifttime_2"), np.float32),
+            (("decay time (based on individual fits)", "decaytime_2"), np.float32),
             
             
         ]
@@ -1890,72 +1917,53 @@ class EventFits(strax.LoopPlugin):
         r = {
             "fails": [-1]*8,
             "t_peaks": [-1]*20,
-            "widths": [-1]*4,
-            "areas": [-1]*4,
-            "t_max": [-1]*4,
-            "t_mid": [-1]*4,
         }
-        
+
         ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
         r["n_peaks"] = len(ps)
+
+
         for i, p in enumerate(ps[:20]):
             r["t_peaks"][i] = p["time"]
-        
+
         if len(ps) < 2:
             r["fails"][0] = True
             return(r)
-        
-        ets, ewf = self.build_event_waveform(ps)
-        p0 = self.f_event_p0(ets, ewf, ps)
-        bounds = self.f_event_bounds(ets, ewf, ps)
-        
-        try:
-            fit, cov = curve_fit(
-                self.f_event,
-                ets,
-                ewf,
-                p0 = p0,
-                bounds = bounds
-            ) 
-            sfit = np.diag(cov)**.5
-            r["fit"] = fit
-            r["sfit"] = sfit
-        except Exception:
+
+        ets, ewf = eff.build_event_waveform(ps)
+        fit, sfit, p0, bounds = eff.fit_full_event(ets, ewf, ps)
+        if fit is False:
             r["fails"][1] = True
             return(r)
-        
-        
-        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
-        sep = self.f_event_separate_vars(fit, sfit)
-        for i, (l, (fit_, sfit_)) in enumerate(sep.items()):
-            t0 = fit_[0] - 10*fit_[1]
-            t1 = fit_[0] + 10*fit_[1]
-            f, pars  = self.sep_props[l[:2]]
-            
-            t = np.linspace(t0, t1, 1000)
-            tw = np.diff(t)[0]
-            yf = f(t, *fit_)
-            area = np.sum(yf*tw)
-            af = np.cumsum(yf*tw)/area
-            
-            t0, t_mid, t1 = np.interp([.25, .5, .75], af, t)
-            width = t1-t0
-            
-            r["areas"][i] = area
-            r["widths"][i] = width
-            r["t_mid"][i] = t_mid
-            r["t_max"][i] = t[np.argmax(yf)]
-        
-        r["drifttime"] = (r["t_mid"][3]-r["t_mid"][0])/1000
-        r["decaytime"] = r["t_mid"][1]-r["t_mid"][0]
-              
-        r["drifttime_max"] = (r["t_max"][3]-r["t_max"][0])/1000
-        r["decaytime_max"] = r["t_max"][1]-r["t_max"][0]
-        
-        r["drifttime_fit"] = (t_S11 + t_decay + t_drift)/1000
-        r["decaytime_fit"] = t_decay
-        
+        r["fit"] = fit
+        r["sfit"] = sfit
+        rp = eff.extract_info(fit = fit)
+
+        r = {**r, **rp}
+
+        fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, fit, bounds)
+        if fit_S1 is False:
+            r["fails"][2] = True
+            return(r)
+        r["fit_S1"] = fit_S1
+        r["sfit_S1"] = sfit_S1
+
+        fit_S2, sfit_S2 = eff.fit_S2s(ets, ewf, fit, fit_S1 , bounds)
+        if fit_S2 is False:
+            r["fails"][3] = True
+            return(r)
+        r["fit_S2"] = fit_S2
+        r["sfit_S2"] = sfit_S2
+
+
+        t_S11, t_decay, t_drift, sigma, A3, A4 = fit_S2
+        t_S11, t_decay, tau, a, A1, A2 = fit_S1
+
+        rp = eff.extract_info(fit_S1 = fit_S1, fit_S2 = fit_S2)
+
+        r = {**r, **rp}
         r["OK"] = True
+
         self.fits_ok = self.fits_ok+1
         
         return(r)

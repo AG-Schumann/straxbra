@@ -1119,7 +1119,7 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4.30'
+    __version__ = '0.0.4.32'
     depends_on = ('events', 'peaks', 'peak_basics')
   
   
@@ -1446,15 +1446,14 @@ class SPKryptonS2Fits(strax.LoopPlugin):
     """
     fits gaussions on S2s 
     """
-    __version__ = '0.0.0.20'
-    depends_on = (
-        #'events',
-        'sp_krypton', 'peaks'
-    )
+    __version__ = '0.0.0.24'
+    depends_on = ('sp_krypton', 'peaks')
   
     
     def infer_dtype(self):
         dtype = [
+            (("fit result", "fit"), np.float32, 5),
+            (("fit uncertainties", "sfit"), np.float32, 5),
             (("first S2s area",    "area_S21"), np.float32),
             (("first S2s width",  "width_S21"), np.float32),
             (("second S2s area",   "area_S22"), np.float32),
@@ -1497,10 +1496,13 @@ class SPKryptonS2Fits(strax.LoopPlugin):
             r["area_S22"] =  S22_props[0]
             r["width_S21"] =  S21_props[1]
             r["width_S22"] =  S22_props[1]
+            r["fit"] =  fit
+            r["sfit"] =  sfit
+            
             r["OK"]  = True
         except Exception as e:
-            pass
 #             print(f" {e}")
+            pass
         return(r)
 
     
@@ -1868,7 +1870,7 @@ class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.21'
+    __version__ = '0.0.0.22'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
   

@@ -6,7 +6,7 @@ f_event_pars = ["t_\mathrm{{S11}}", "t_\mathrm{{decay}}", "t_\mathrm{{drift'}}",
 f_event_exp_pars = ["t_0", "\\tau", "a", "A"]
 f_event_gauss_pars = ["t_0", "\\sigma", "A"]
 
-f_event_txt = ["t_S11", "t_decay", "t_drift", "tau", "a", "sigma", "A_S11", "A_S12", "A_S21", "A_S22", "dt_off"]
+f_event_txt = ["t_S11", "t_decay", "t_drift", "tau", "a", "sigma", "A1", "A2", "A3", "A4", "dct_offset"]
 f_de_txt = ["t_S11", "t_decay", "tau", "a", "A1", "A2"]
 f_dg_txt = ["t_S11", "t_decay", "t_drift", "sigma", "A3", "A4"]
 
@@ -92,28 +92,33 @@ def f_event_p0(ets, ewf, ps):
     ts = ps["time"] - t0
     
     id_s1_pot = np.nonzero(ps["area"] < 500)[0][0]
-    t_S11 = ts[id_s1_pot]
-    ps_ = ps[((ts-t_S11) >= 0) & ((ts - t_S11) < 50000) ]
+    peak_S1 = ps[id_s1_pot] 
+    t_S11 = peak_S1["time"] - t0 + peak_S1["time_to_midpoint"]
+    
+    ps_ = ps[(peak_S1["time"] >= 0) & ((ts - t_S11) < 50000) ]
+    peakS12 = ps[1]
     
     
     id_widest_peak = np.argmax(ps_["width"][:,5])
     widest_peak = ps_[id_widest_peak]
     
-    t_decay = 250
-    t_drift = abs((widest_peak["time"]-t0)-t_decay-t_S11)
-
+    t_decay = peakS12["time"]-t0+peakS12["time_to_midpoint"]-t_S11
+    if t_decay > 1500:
+        t_decay = 150
+    t_drift = abs((widest_peak["time"]-t0)+widest_peak["time_to_midpoint"]-t_decay-t_S11)
+    
     #     t_decay  = min(t_decay, 2500)
     #t_drift  = min(t_drift, 50000)
     
     tau = 25
-    a = 15
-    sigma = 200 #widest_peak["width"][5]/10
+    a = 10
+    sigma = widest_peak["width"][5]/2
     A1 = 5
     A2 = 2
-    A3 = 2.5
+    A3 = max(ewf)
     A4 = .25
     dct_offset = 0
-    return(t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
+    return(np.array([t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset]))
 
 
 def f_event_bounds(ets, ewf, ps):
@@ -143,16 +148,36 @@ def fit_full_event(ets, ewf, ps):
         p0 = f_event_p0(ets, ewf, ps)
         bounds = f_event_bounds(ets, ewf, ps)
         
+        ids_all = range(len(p0))
+
+        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = p0
+        f_fit = lambda t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4: f_event(t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
+
+        pars_all = np.array(f_event.__code__.co_varnames[1:])
+        pars_fit = np.array(f_fit.__code__.co_varnames[1:])
+        id_to_use = [np.nonzero(pars_all == pf)[0][0]for pf in pars_fit]
         
-        fit, cov = curve_fit(
-            f_event,
-            ets,
-            ewf,
-            p0 = p0,
-            bounds = bounds,
-            absolute_sigma=True,
-        )
-        sfit = np.diag(cov)**.5
+        
+        p0_fit = p0[id_to_use]
+        
+        
+        fit_, cov = curve_fit(
+                f_fit,
+                ets,
+                ewf,
+                p0 = p0_fit,
+                absolute_sigma=True,
+                # bounds = bounds,
+                # full_output = True,
+
+            )
+        sfit_ = np.diag(cov)**.5
+        
+        fit = p0
+        sfit = [-1]*len(p0)
+        for i, v, sv in zip(id_to_use, fit_, sfit_):
+            fit[i] = v
+            sfit[i] = sv
     
     except Exception as e:
         print(f" Event fit failed: {e}")
@@ -181,14 +206,14 @@ def fit_S1s(ets, ewf, fit, bounds):
             ets_S1,
             ewf_S1,
             p0 = p0,
-            bounds = bounds,
+            # bounds = bounds,
             absolute_sigma=True,
         )
         sfit = np.diag(cov)**.5
     
     except Exception as e:
         print(f" S1-fit failed: {e}")
-        print_p0_outa_bounds(p0, bounds, f_de_txt)
+        # print_p0_outa_bounds(p0, bounds, f_de_txt)
     return(fit, sfit)
 
 
@@ -215,14 +240,14 @@ def fit_S2s(ets, ewf, fit, fit_S1, bounds):
             ets_S2,
             ewf_S2,
             p0 = p0,
-            bounds = bounds,
+            # bounds = bounds,
             absolute_sigma=True,
         )
         sfit = np.diag(cov)**.5
     
     except Exception as e:
         print(f" S2-fit failed: {e}")
-        print_p0_outa_bounds(p0, bounds, f_dg_txt)
+        # print_p0_outa_bounds(p0, bounds, f_dg_txt)
     return(fit, sfit)
 
 def get_aw(f, pars, dt = .5):

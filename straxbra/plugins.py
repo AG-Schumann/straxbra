@@ -1870,7 +1870,7 @@ class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.22'
+    __version__ = '0.0.0.27'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
   
@@ -1878,13 +1878,15 @@ class EventFits(strax.LoopPlugin):
   
     def infer_dtype(self):
         dtype = [
-            (("wheter the event is OK or not", "OK"), np.bool),
+            (("wheter the event fit is OK or not", "OK"), np.bool),
+            (("wheter the individual fits are OK or not", "OK2"), np.bool),
             (("which tests the event fails", "fails"), np.bool, 8),
             (("time of first 20 large peaks", "t_peaks"), np.int64, 20),
             
             (("nuber of peaks in this event", "n_peaks"), np.int8),
             (("fit results", "fit"), np.float32, 11),
             (("fit uncertaintys", "sfit"), np.float32, 11),
+            (("fit starting parameters", "fit_p0"), np.float32, 11),
             
             (("fit results for S1 fit", "fit_S1"), np.float32, 6),
             (("fit uncertaintys for S1 fit", "sfit_S1"), np.float32, 6),
@@ -1895,6 +1897,7 @@ class EventFits(strax.LoopPlugin):
             (("time of middle of peak", "t_mid"), np.float32, 4),
             (("signal widths", "widths"), np.float32, 4),
             (("signal areas", "areas"), np.float32, 4),
+            
             (("drift time", "drifttime"), np.float32),
             (("decay time", "decaytime"), np.float32),
             
@@ -1905,7 +1908,10 @@ class EventFits(strax.LoopPlugin):
             (("drift time (based on individual fits)", "drifttime_2"), np.float32),
             (("decay time (based on individual fits)", "decaytime_2"), np.float32),
             
-            
+            # fields taht can be populated later
+            (("corrected signal areas", "c_areas"), np.float32, 4),
+            (("corrected drifttime", "c_drifttime"), np.float32),
+            (("z_pos", "z"), np.float32),
         ]
 
         return dtype
@@ -1914,7 +1920,7 @@ class EventFits(strax.LoopPlugin):
     fits_ok = 0
     def compute_loop(self, event, peaks):
         self.iteration = self.iteration+1
-        print(f"\r{self.iteration} (OK: {self.fits_ok})", end = "")
+        print(f"\r{self.iteration} (OK: {self.fits_ok}) ", end = "")
     
         r = {
             "fails": [-1]*8,
@@ -1939,9 +1945,15 @@ class EventFits(strax.LoopPlugin):
             return(r)
         r["fit"] = fit
         r["sfit"] = sfit
-        rp = eff.extract_info(fit = fit)
-
-        r = {**r, **rp}
+        r["fit_p0"] = p0
+        try:
+            rp = eff.extract_info(fit = fit)
+            r = {**r, **rp}
+        except Exception as e:
+            print(e)
+            r["fails"][4] = True
+            return(r)
+        r["OK"] = True
 
         fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, fit, bounds)
         if fit_S1 is False:
@@ -1957,15 +1969,18 @@ class EventFits(strax.LoopPlugin):
         r["fit_S2"] = fit_S2
         r["sfit_S2"] = sfit_S2
 
-
+        
         t_S11, t_decay, t_drift, sigma, A3, A4 = fit_S2
         t_S11, t_decay, tau, a, A1, A2 = fit_S1
-
-        rp = eff.extract_info(fit_S1 = fit_S1, fit_S2 = fit_S2)
-
-        r = {**r, **rp}
-        r["OK"] = True
-
+        try:
+            rp = eff.extract_info(fit_S1 = fit_S1, fit_S2 = fit_S2)
+            r = {**r, **rp}
+        except Exception as e:
+            print(e)
+            r["fails"][5] = True
+            return(r)
+        r["OK2"] = True
+        
         self.fits_ok = self.fits_ok+1
         
         return(r)

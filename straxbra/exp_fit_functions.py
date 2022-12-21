@@ -91,13 +91,19 @@ def f_event_p0(ets, ewf, ps):
     t0 = ps["time"][0]
     ts = ps["time"] - t0
     
-    id_s1_pot = np.nonzero(ps["area"] < 500)[0][0]
+    try:
+        id_s1_pot = np.nonzero(ps["area"] < 500)[0][0]
+    except Exception:
+        id_s1_pot = 0
+    
     peak_S1 = ps[id_s1_pot] 
     t_S11 = peak_S1["time"] - t0 + peak_S1["time_to_midpoint"]
     
     ps_ = ps[(peak_S1["time"] >= 0) & ((ts - t_S11) < 50000) ]
-    peakS12 = ps[1]
-    
+    try:
+        peakS12 = ps[1]
+    except Exception:
+        peakS12 = ps[0]
     
     id_widest_peak = np.argmax(ps_["width"][:,5])
     widest_peak = ps_[id_widest_peak]
@@ -105,13 +111,15 @@ def f_event_p0(ets, ewf, ps):
     t_decay = peakS12["time"]-t0+peakS12["time_to_midpoint"]-t_S11
     if t_decay > 1500:
         t_decay = 150
+    elif t_decay < 10:
+        t_decay = 10
     t_drift = abs((widest_peak["time"]-t0)+widest_peak["time_to_midpoint"]-t_decay-t_S11)
     
     #     t_decay  = min(t_decay, 2500)
     #t_drift  = min(t_drift, 50000)
     
     tau = 25
-    a = 10
+    a = 15
     sigma = widest_peak["width"][5]/2
     A1 = 5
     A2 = 2
@@ -122,13 +130,15 @@ def f_event_p0(ets, ewf, ps):
 
 
 def f_event_bounds(ets, ewf, ps):
+    inf = np.inf
     max_width = 10*np.max(ps["width"])
 # t_S0, dt, tau, a, A1, A2
 # 0, 1, 3, 4, 6, 7
-#     t_S11,     t_decay,t_drift, tau,   a,    sigma,   A1,  A2,  A3,  A4, t_offset
-    l = (     0,      10,    100,   0,   0,        3,   .1,  .1,  .1,  .0,      -10)
-    u = (50_000,    1500, 50_000,  50,  20,      500,   10,  10,  10,   1,       10)
+#                 t_S11, t_decay, t_drift, tau,   a, sigma,   A1,  A2,  A3,  A4, t_offset
+    l = np.array([    0,       0,   -2500,   0,   0,     0,    0,   0,   0,   0,    -1000])
+    u = np.array([  inf,     inf,     inf, inf,  25,   inf,  inf, inf, inf,   1,     1000])
     return((l,u))
+
 def extract_bounds(bounds, ids):
     l = np.array(bounds[0])[np.array(ids)]
     u = np.array(bounds[1])[np.array(ids)]
@@ -159,7 +169,10 @@ def fit_full_event(ets, ewf, ps):
         
         
         p0_fit = p0[id_to_use]
-        
+        bounds_fit = (
+            bounds[0][id_to_use],
+            bounds[1][id_to_use],
+        )
         
         fit_, cov = curve_fit(
                 f_fit,
@@ -167,13 +180,13 @@ def fit_full_event(ets, ewf, ps):
                 ewf,
                 p0 = p0_fit,
                 absolute_sigma=True,
-                # bounds = bounds,
+                bounds = bounds_fit,
                 # full_output = True,
 
             )
         sfit_ = np.diag(cov)**.5
         
-        fit = p0
+        fit = p0*1
         sfit = [-1]*len(p0)
         for i, v, sv in zip(id_to_use, fit_, sfit_):
             fit[i] = v

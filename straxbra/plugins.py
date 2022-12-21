@@ -1870,7 +1870,7 @@ class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.27'
+    __version__ = '0.0.0.28'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
   
@@ -1920,7 +1920,7 @@ class EventFits(strax.LoopPlugin):
     fits_ok = 0
     def compute_loop(self, event, peaks):
         self.iteration = self.iteration+1
-        print(f"\r{self.iteration} (OK: {self.fits_ok}) ", end = "")
+        print(f"\r{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%}) ", end = "")
     
         r = {
             "fails": [-1]*8,

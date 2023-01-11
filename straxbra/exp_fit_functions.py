@@ -64,7 +64,7 @@ def f_event_sum_exp(t, t_S11, t_decay, tau, a, A1, A2):
     )
 
 def f_event_sum_gauss(t, t_S11, t_decay, t_drift, sigma, A3, A4):
-    t_S21 = t_S11 + t_decay + t_drift
+    t_S21 = t_S11 + t_drift
     t_S22 = t_S21 + t_decay
     return(
           f_event_gauss(t, t_S21, sigma, A3) 
@@ -113,7 +113,7 @@ def f_event_p0(ets, ewf, ps):
         t_decay = 150
     elif t_decay < 10:
         t_decay = 10
-    t_drift = abs((widest_peak["time"]-t0)+widest_peak["time_to_midpoint"]-t_decay-t_S11)
+    t_drift = abs((widest_peak["time"]-t0)+widest_peak["time_to_midpoint"]-t_S11)
     
     #     t_decay  = min(t_decay, 2500)
     #t_drift  = min(t_drift, 50000)
@@ -135,8 +135,8 @@ def f_event_bounds(ets, ewf, ps):
 # t_S0, dt, tau, a, A1, A2
 # 0, 1, 3, 4, 6, 7
 #                 t_S11, t_decay, t_drift, tau,   a, sigma,   A1,  A2,  A3,  A4, t_offset
-    l = np.array([    0,       0,   -2500,   0,   0,     0,    0,   0,   0,   0,    -1000])
-    u = np.array([  inf,     inf,     inf, inf,  25,   inf,  inf, inf, inf,   1,     1000])
+    l = np.array([    0,       0,       0,   0,   0,     0,    0,   0,   0,   0,     -500])
+    u = np.array([  inf,     inf,     inf, inf,  25,   inf,  inf, inf, inf,   1,     2500])
     return((l,u))
 
 def extract_bounds(bounds, ids):
@@ -161,7 +161,7 @@ def fit_full_event(ets, ewf, ps):
         ids_all = range(len(p0))
 
         t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = p0
-        f_fit = lambda t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4: f_event(t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
+        f_fit = lambda t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset: f_event(t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
 
         pars_all = np.array(f_event.__code__.co_varnames[1:])
         pars_fit = np.array(f_fit.__code__.co_varnames[1:])
@@ -243,7 +243,7 @@ def fit_S2s(ets, ewf, fit, fit_S1, bounds):
         p0 = (t_S11, t_decay, t_drift, sigma, A3, A4)
         bounds = extract_bounds(bounds, [0, 1, 2, 5, 8, 9])
 
-        idx_S2 = np.nonzero((ets > t_S11 + t_drift+t_decay - 5 * sigma) & (ets < t_S11 +t_drift+2*t_decay+ 5*sigma))[0]
+        idx_S2 = np.nonzero((ets > t_S11 + t_drift - 5 * sigma) & (ets < t_S11 +t_drift+t_decay+ 5*sigma))[0]
         ets_S2 = ets[idx_S2]
         ewf_S2 = ewf[idx_S2]
     
@@ -294,12 +294,12 @@ def extract_info(fit = False, fit_S1=False, fit_S2=False):
         t_S11, t_decay, tau, a, A1, A2 = fit_S1
         suffix = "_2"
     t_S12 = t_S11 + t_decay
-    t_S21 = t_S12 + t_drift
-    t_S22 = t_S21 + t_decay
+    t_S21 = t_S11 + t_drift
+    t_S22 = t_S21 + t_decay + dct_offset
     
     r = {
         f"decaytime": t_decay,
-        "drifttime": (t_decay + t_drift)/1000,
+        "drifttime": t_drift/1000,
         "areas":[-1]*4,
         "widths":[-1]*4,
         "t_mid":[-1]*4,

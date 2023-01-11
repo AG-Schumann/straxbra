@@ -195,6 +195,9 @@ class Records(strax.Plugin):
         strax.Option('split_n_smoothing', default=0,
                      help='how strong the peak smooting is applied (only for find_split_points)'),
                      
+        strax.Option('time_delay', default=False,
+                     help='how much channels are delayed, for example transient time in different PMTs'),
+                     
         strax.Option('to_pe', track=False,
                      default_by_run=utils.GetGains,
                      help='PMT gains'),
@@ -205,7 +208,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1F"
+    __version__ = "0.0.1.12"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -217,13 +220,22 @@ class Peaks(strax.Plugin):
         dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
         
         return(dtype_peaks)
-        
-
+    # TODO: ADD those
+    # sum_waveform(peaks, records, adc_to_pe, time_delay
+    # split_peaks(peaks, records, to_pe, time_delay,...
+    
     def compute(self, records):
         r = records
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
         hits = strax.sort_by_time(hits)
-
+        
+        time_delay = self.config['time_delay']
+        
+        if time_delay is False:
+            time_delay = np.zeros(self.config['n_channels'])
+        
+        print(f"time_delay: {time_delay}")
+        
         peaks = strax.find_peaks(hits, self.config['to_pe'],
                                  result_dtype=self.dtype,
                                  gap_threshold=self.config['peak_gap_threshold'],
@@ -233,9 +245,10 @@ class Peaks(strax.Plugin):
                                  min_area=self.config['peak_min_area'],
                                  max_duration=self.config['peak_max_duration'],
                                  )
-        strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'])
+        strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'], time_delay = time_delay)
         peaks = peaks[peaks['dt'] > 0]  # removes strange edge case
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
+                                  time_delay = time_delay,
                                   min_height=self.config['split_min_height'],
                                   min_ratio=self.config['split_min_ratio'],
                                   n_smoothing=self.config['split_n_smoothing']
@@ -1920,7 +1933,8 @@ class EventFits(strax.LoopPlugin):
     fits_ok = 0
     def compute_loop(self, event, peaks):
         self.iteration = self.iteration+1
-        print(f"\r{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%}) ", end = "")
+        print(f"\r{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%})  ", end = "")
+        
     
         r = {
             "fails": [-1]*8,
@@ -1939,7 +1953,9 @@ class EventFits(strax.LoopPlugin):
             return(r)
 
         ets, ewf = eff.build_event_waveform(ps)
+        print("\b1", end = "")
         fit, sfit, p0, bounds = eff.fit_full_event(ets, ewf, ps)
+        print("\b2", end = "")
         if fit is False:
             r["fails"][1] = True
             return(r)
@@ -1955,21 +1971,25 @@ class EventFits(strax.LoopPlugin):
             return(r)
         r["OK"] = True
 
+        print("\b3", end = "")
         fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, fit, bounds)
+        print("\b4", end = "")
         if fit_S1 is False:
             r["fails"][2] = True
             return(r)
         r["fit_S1"] = fit_S1
         r["sfit_S1"] = sfit_S1
 
+        print("\b5", end = "")
         fit_S2, sfit_S2 = eff.fit_S2s(ets, ewf, fit, fit_S1 , bounds)
+        print("\b6", end = "")
         if fit_S2 is False:
             r["fails"][3] = True
             return(r)
         r["fit_S2"] = fit_S2
         r["sfit_S2"] = sfit_S2
 
-        
+        print("\b7", end = "")
         t_S11, t_decay, t_drift, sigma, A3, A4 = fit_S2
         t_S11, t_decay, tau, a, A1, A2 = fit_S1
         try:
@@ -1979,6 +1999,7 @@ class EventFits(strax.LoopPlugin):
             print(e)
             r["fails"][5] = True
             return(r)
+        print("\b8", end = "")
         r["OK2"] = True
         
         self.fits_ok = self.fits_ok+1

@@ -8,6 +8,14 @@ export, __all__ = strax.exporter()
 from . import plugins
 
 
+
+
+# for now only tranisent times are used
+time_delay_default = 12*np.ones(8)
+time_delay_default[0] = 46
+
+time_delay_default = list(time_delay_default)
+
 def process_runlist(run_id):
     if isinstance(run_id, str):
         _validate_id(run_id)
@@ -51,9 +59,10 @@ class XebraContext(strax.Context):
     def __init__(self, *args, **kwargs):
         experiment = kwargs.pop('experiment', 'xebra')
         if 'config' not in kwargs:
-            kwargs['config'] = {'experiment' : experiment}
+            kwargs['config'] = {'experiment' : experiment, "time_delay":time_delay_default,}
         elif 'experiment' not in kwargs['config']:
             kwargs['config']['experiment'] = experiment
+            kwargs['config']['time_delay'] = time_delay_default
         if 'storage' not in kwargs:
             kwargs['storage'] = os.path.join(storage_base_dir, experiment)
         if 'register' not in kwargs and 'register_all' not in kwargs:
@@ -106,9 +115,10 @@ class SinglePhaseContext(strax.Context):
         utils.experiment = 'xebra_singlephase'
         experiment = kwargs.pop('experiment', utils.experiment)
         if 'config' not in kwargs:
-            kwargs['config'] = {'experiment' : experiment}
+            kwargs['config'] = {'experiment' : experiment, "time_delay":time_delay_default,}
         elif 'experiment' not in kwargs['config']:
             kwargs['config']['experiment'] = experiment
+            kwargs['config']['time_delay'] = time_delay_default
         if 'storage' not in kwargs:
             kwargs['storage'] = os.path.join(storage_base_dir, "singlephase")
         if 'register' not in kwargs and 'register_all' not in kwargs:

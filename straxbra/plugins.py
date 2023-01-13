@@ -1459,7 +1459,7 @@ class SPKryptonS2Fits(strax.LoopPlugin):
     """
     fits gaussions on S2s 
     """
-    __version__ = '0.0.0.24'
+    __version__ = '0.0.0.32'
     depends_on = ('sp_krypton', 'peaks')
   
     
@@ -1467,6 +1467,8 @@ class SPKryptonS2Fits(strax.LoopPlugin):
         dtype = [
             (("fit result", "fit"), np.float32, 5),
             (("fit uncertainties", "sfit"), np.float32, 5),
+            (("total S2 area",    "area_S2"), np.float32),
+            (("width of first S2", "width_S2"), np.float32),
             (("first S2s area",    "area_S21"), np.float32),
             (("first S2s width",  "width_S21"), np.float32),
             (("second S2s area",   "area_S22"), np.float32),
@@ -1482,19 +1484,26 @@ class SPKryptonS2Fits(strax.LoopPlugin):
     iteration = 0
     def compute_loop(self, event, peaks):
         self.iteration += 1
-        print(f"\r{self.iteration} ", end = "")
+        print(f"\r{self.iteration:>6} ", end = "")
         
         r = {}
         
         r["time"] = event["time"]
         r["endtime"] = event["endtime"]
-        r["is_event"] = event["is_event"],
+        r["is_event"] = event["is_event"]
         r["OK"] = False
+        
+        if event["is_event"] != 1:
+            return(r)
         
         t_decay = event["time_decay_s1"]
         S21_width = event["width_s21"]
         ps = peaks[np.in1d(peaks["time"], event["time_signals"][2:])]
         
+        if event["s2_split"] == 1:
+            ps = ps[0:2]
+        else:
+            ps = ps[0:1]
         
         try:
             ets, ewf = eff.build_event_waveform(ps)
@@ -1509,6 +1518,10 @@ class SPKryptonS2Fits(strax.LoopPlugin):
             r["area_S22"] =  S22_props[0]
             r["width_S21"] =  S21_props[1]
             r["width_S22"] =  S22_props[1]
+            
+            r["area_S2"] =  S21_props[0] + S22_props[0]
+            r["width_S2"] =  S21_props[1] + S22_props[1]
+            
             r["fit"] =  fit
             r["sfit"] =  sfit
             
@@ -1523,7 +1536,7 @@ class SPKryptonS2Fits(strax.LoopPlugin):
     
 @export
 @strax.takes_config(
-    strax.Option('sp_krypton_s1_area_min', default=25,
+    strax.Option('sp_krypton_s1_area_min', default=10,
                  help='minimum area for a peak to potentially be a S1'),
     strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
                  help='Maximum drifttime (ns)'),
@@ -1533,7 +1546,7 @@ class PeaksLarge(strax.Plugin):
     """
     just returns the largest peaks
     """
-    __version__ = "0.0.0.1"
+    __version__ = "0.0.0.2"
     parallel = True
     depends_on = ('peaks',)
 
@@ -1883,10 +1896,12 @@ class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.28'
+    __version__ = '0.0.0.32'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
-  
+    
+    #
+    verbose = True
     
   
     def infer_dtype(self):
@@ -1903,8 +1918,8 @@ class EventFits(strax.LoopPlugin):
             
             (("fit results for S1 fit", "fit_S1"), np.float32, 6),
             (("fit uncertaintys for S1 fit", "sfit_S1"), np.float32, 6),
-            (("fit results for S2 fit", "fit_S2"), np.float32, 6),
-            (("fit uncertaintys for S2 fit", "sfit_S2"), np.float32, 6),
+            (("fit results for S2 fit", "fit_S2"), np.float32, 5),
+            (("fit uncertaintys for S2 fit", "sfit_S2"), np.float32, 5),
             
             (("time of maximum of peak", "t_max"), np.float32, 4),
             (("time of middle of peak", "t_mid"), np.float32, 4),
@@ -1931,9 +1946,14 @@ class EventFits(strax.LoopPlugin):
         
     iteration = 0
     fits_ok = 0
+    
+    
     def compute_loop(self, event, peaks):
+        
+        verbose = self.verbose
         self.iteration = self.iteration+1
-        print(f"\r{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%})  ", end = "")
+        print("\r", end = " "*100)
+        print(f"\r{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%}) ", end = "")
         
     
         r = {
@@ -1953,9 +1973,9 @@ class EventFits(strax.LoopPlugin):
             return(r)
 
         ets, ewf = eff.build_event_waveform(ps)
-        print("\b1", end = "")
+        if verbose is True: print("1", end = "")
         fit, sfit, p0, bounds = eff.fit_full_event(ets, ewf, ps)
-        print("\b2", end = "")
+        if verbose is True: print("2", end = "")
         if fit is False:
             r["fails"][1] = True
             return(r)
@@ -1971,35 +1991,35 @@ class EventFits(strax.LoopPlugin):
             return(r)
         r["OK"] = True
 
-        print("\b3", end = "")
+        if verbose is True: print("3", end = "")
         fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, fit, bounds)
-        print("\b4", end = "")
+        if verbose is True: print("4", end = "")
         if fit_S1 is False:
             r["fails"][2] = True
             return(r)
         r["fit_S1"] = fit_S1
         r["sfit_S1"] = sfit_S1
 
-        print("\b5", end = "")
+        if verbose is True: print("5", end = "")
         fit_S2, sfit_S2 = eff.fit_S2s(ets, ewf, fit, fit_S1 , bounds)
-        print("\b6", end = "")
+        if verbose is True: print("6", end = "")
         if fit_S2 is False:
             r["fails"][3] = True
             return(r)
         r["fit_S2"] = fit_S2
         r["sfit_S2"] = sfit_S2
 
-        print("\b7", end = "")
-        t_S11, t_decay, t_drift, sigma, A3, A4 = fit_S2
+        if verbose is True: print("7", end = "")
+        t_S21, t_decay, sigma, A3, A4 = fit_S2
         t_S11, t_decay, tau, a, A1, A2 = fit_S1
         try:
-            rp = eff.extract_info(fit_S1 = fit_S1, fit_S2 = fit_S2)
+            rp = eff.extract_info(fit = fit, fit_S1 = fit_S1, fit_S2 = fit_S2)
             r = {**r, **rp}
         except Exception as e:
             print(e)
             r["fails"][5] = True
             return(r)
-        print("\b8", end = "")
+        if verbose is True: print("8", end = "")
         r["OK2"] = True
         
         self.fits_ok = self.fits_ok+1

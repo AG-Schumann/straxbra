@@ -8,7 +8,28 @@ f_event_gauss_pars = ["t_0", "\\sigma", "A"]
 
 f_event_txt = ["t_S11", "t_decay", "t_drift", "tau", "a", "sigma", "A1", "A2", "A3", "A4", "dct_offset"]
 f_de_txt = ["t_S11", "t_decay", "tau", "a", "A1", "A2"]
-f_dg_txt = ["t_S11", "t_decay", "t_drift", "sigma", "A3", "A4"]
+f_dg_txt = ["t_drift", "t_decay", "sigma", "A3", "A4", "dct_offset"]
+
+
+def print_results(fit, fit_S1=False, fit_S2=False, p0 = False):
+    if p0 is False:
+        p0 = []
+    if fit_S1 is False:
+        fit_S1 = []
+    if fit_S2 is False:
+        fit_S2 = []
+    print(f"{' '*12} {'p0':>8} {'fit':>8} {'fit_S1':>8} {'fit_S2':>8}")
+    v_def = {l:" "*8 for l in f_event_txt}
+    
+    v0_d = {**v_def, **{l:f"{v:8.1f}" for l, v in zip(f_event_txt, p0)}}
+    v1_d = {**v_def, **{l:f"{v:8.1f}" for l, v in zip(f_de_txt, fit_S1)}}
+    v2_d = {**v_def, **{l:f"{v:8.1f}" for l, v in zip(f_dg_txt, fit_S2)}}
+    
+    for l, v in zip(f_event_txt, fit):
+        print(f"{l:>12} {v0_d[l]} {v:8.1f} {v1_d[l]} {v2_d[l]}")
+
+
+
 
 def print_p0_outa_bounds(p0, bounds, pars = f_event_txt):
     try:
@@ -16,9 +37,9 @@ def print_p0_outa_bounds(p0, bounds, pars = f_event_txt):
 
         for par, p, l, u in zip(pars, p0, bl, bu):
             if (p < l):
-                print(f"{par} to low: {p:2g} < {l:2g}")
+                print(f"\t\t{par} to low: {p:2g} < {l:2g}")
             if (p > u):
-                print(f"{par} to high: {p:2g} > {u:2g}")
+                print(f"\t\t{par} to high: {p:2g} > {u:2g}")
         return(None)
     except Exception:
         return(None)
@@ -63,8 +84,7 @@ def f_event_sum_exp(t, t_S11, t_decay, tau, a, A1, A2):
         + f_event_exp(t, t_S12, tau, a, A2)
     )
 
-def f_event_sum_gauss(t, t_S11, t_decay, t_drift, sigma, A3, A4):
-    t_S21 = t_S11 + t_drift
+def f_event_sum_gauss(t, t_S21, t_decay, sigma, A3, A4):
     t_S22 = t_S21 + t_decay
     return(
           f_event_gauss(t, t_S21, sigma, A3) 
@@ -73,9 +93,12 @@ def f_event_sum_gauss(t, t_S11, t_decay, t_drift, sigma, A3, A4):
 
 
 def f_event(t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset):
+    
+    t_S21 = t_S11 + t_drift
+    
     return(
           f_event_sum_exp(t, t_S11, t_decay, tau, a, A1, A2)
-        + f_event_sum_gauss(t, t_S11, t_decay+dct_offset, t_drift, sigma, A3, A4)
+        + f_event_sum_gauss(t, t_S21, t_decay+dct_offset, sigma, A3, A4)
     )
 
 
@@ -87,46 +110,83 @@ sep_props = {
 
 
 def f_event_p0(ets, ewf, ps):
-
     t0 = ps["time"][0]
     ts = ps["time"] - t0
-    
+
     try:
-        id_s1_pot = np.nonzero(ps["area"] < 500)[0][0]
+        ids_s1_pot = np.nonzero(ps["area"] < 500)[0]
+        ps_S1s = ps[ids_s1_pot]
+        peak_S11 = ps[ids_s1_pot[0]]
     except Exception:
-        id_s1_pot = 0
+        ps_S1s = ps[0]
+        peak_S11 = ps_S1s[0]
+
+
+    t_S11 = peak_S11["time"] - t0 + peak_S11["time_to_midpoint"]
+
+    # find second S1 within 2500 ns
+    ids_pot_s12 = [*np.nonzero((ps_S1s[1:]["time"] - peak_S11["time"]) < 2500)[0]+1, 0]
     
-    peak_S1 = ps[id_s1_pot] 
-    t_S11 = peak_S1["time"] - t0 + peak_S1["time_to_midpoint"]
     
-    ps_ = ps[(peak_S1["time"] >= 0) & ((ts - t_S11) < 50000) ]
-    try:
-        peakS12 = ps[1]
-    except Exception:
-        peakS12 = ps[0]
+    id_pot_s12 = ids_s1_pot[ids_pot_s12[0]]
+
+    peak_S12 = ps[id_pot_s12]
+    if peak_S12["time"] == peak_S11["time"]:
+        # first and second S1 peak is same peak
+        try:
+            # find the last 
+            id_largest = np.argsort(peak_S11["data"])[::-1]
+            id_diff = np.abs(np.diff(id_largest))
+            id_first_offset = np.nonzero(id_diff > 10)[0][0]
+            id_second_peak = id_largest[id_first_offset+1]
+            t_decay = id_second_peak * peak_S11["dt"] - t_S11
+        except:
+            # fallback very high as low p0s tend to merge both S1 peaks during fit
+            t_decay = 1500
+    else:
+        # two distinct peaks found
+        t_decay = peak_S12["time"] - peak_S11["time"]
+
+    # S1s Done now S2(s)
+
+    if len(ps) > 1:
+        ps_ = ps[1:]
+    else:
+        ps_ = ps
+
+    id_first_wide_peak = np.argmax(ps_["width"][:,5])
+    widest_peak = ps_[id_first_wide_peak]
+
+     
     
+    t_drift = abs((widest_peak["time"]-t0)+widest_peak["time_to_midpoint"]-t_S11)
+
     id_widest_peak = np.argmax(ps_["width"][:,5])
     widest_peak = ps_[id_widest_peak]
-    
-    t_decay = peakS12["time"]-t0+peakS12["time_to_midpoint"]-t_S11
-    if t_decay > 1500:
-        t_decay = 150
-    elif t_decay < 10:
-        t_decay = 10
-    t_drift = abs((widest_peak["time"]-t0)+widest_peak["time_to_midpoint"]-t_S11)
-    
-    #     t_decay  = min(t_decay, 2500)
-    #t_drift  = min(t_drift, 50000)
-    
+
+
+
+    if t_S11 < 0:
+        t_S11 = 0
+    if t_decay < 0:
+        t_decay = 1500
+    if t_drift < 0:
+        t_drift = 100
+
+
+
     tau = 25
     a = 15
     sigma = widest_peak["width"][5]/2
     A1 = 5
     A2 = 2
-    A3 = max(ewf)
+    A3 = max(widest_peak["data"]/widest_peak["dt"])
     A4 = .25
     dct_offset = 0
+
+
     return(np.array([t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset]))
+
 
 
 def f_event_bounds(ets, ewf, ps):
@@ -135,7 +195,7 @@ def f_event_bounds(ets, ewf, ps):
 # t_S0, dt, tau, a, A1, A2
 # 0, 1, 3, 4, 6, 7
 #                 t_S11, t_decay, t_drift, tau,   a, sigma,   A1,  A2,  A3,  A4, t_offset
-    l = np.array([    0,       0,       0,   0,   0,     0,    0,   0,   0,   0,     -500])
+    l = np.array([    0,       0,       0,   0,   0,     0,    0,   0,   0,   0,    -2500])
     u = np.array([  inf,     inf,     inf, inf,  25,   inf,  inf, inf, inf,   1,     2500])
     return((l,u))
 
@@ -148,7 +208,9 @@ def extract_bounds(bounds, ids):
 
 
 def fit_full_event(ets, ewf, ps):
-    
+    '''
+    returns fit, sfit, p0, bounds
+    '''
     fit = False
     sfit = False
     p0 = False
@@ -161,7 +223,7 @@ def fit_full_event(ets, ewf, ps):
         ids_all = range(len(p0))
 
         t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = p0
-        f_fit = lambda t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset: f_event(t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
+        f_fit = lambda t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4: f_event(t, t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset)
 
         pars_all = np.array(f_event.__code__.co_varnames[1:])
         pars_fit = np.array(f_fit.__code__.co_varnames[1:])
@@ -234,16 +296,15 @@ def fit_S1s(ets, ewf, fit, bounds):
 def fit_S2s(ets, ewf, fit, fit_S1, bounds):
     t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
     t_S11, t_decay, tau, a, A1, A2 = fit_S1
-    
+    t_S21 = t_S11 + t_drift
     
     fit = False
     sfit = False
     
     try:
-        p0 = (t_S11, t_decay, t_drift, sigma, A3, A4)
-        bounds = extract_bounds(bounds, [0, 1, 2, 5, 8, 9])
-
-        idx_S2 = np.nonzero((ets > t_S11 + t_drift - 5 * sigma) & (ets < t_S11 +t_drift+t_decay+ 5*sigma))[0]
+        p0 = (t_S21, t_decay, sigma, A3, A4)
+        
+        idx_S2 = np.nonzero((ets > t_S21 - 5 * sigma) & (ets < t_S21+t_decay+ 5*sigma))[0]
         ets_S2 = ets[idx_S2]
         ewf_S2 = ewf[idx_S2]
     
@@ -289,12 +350,14 @@ def extract_info(fit = False, fit_S1=False, fit_S2=False):
     if (fit is not False):
         t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
         suffix = False
+        t_S21 = t_S11 + t_drift
     if (fit_S1 is not False) and (fit_S2 is not False):
-        t_S11, t_decay, t_drift, sigma, A3, A4 = fit_S2
+        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
+        t_S21, t_decay, sigma, A3, A4 = fit_S2
         t_S11, t_decay, tau, a, A1, A2 = fit_S1
         suffix = "_2"
+        t_drift = t_S21 - t_S11
     t_S12 = t_S11 + t_decay
-    t_S21 = t_S11 + t_drift
     t_S22 = t_S21 + t_decay + dct_offset
     
     r = {
@@ -351,7 +414,11 @@ def fit_S2(ets, ewf, t_decay, S21_width):
         f_fit,
         ets, ewf,
         p0 = p0,
-        absolute_sigma=True
+        absolute_sigma=True,
+        bounds = [
+            (0, 0, 0, 0),
+            (np.inf, np.inf, np.inf, np.inf)
+        ]
     )
     sfit = np.diag(cov)**.5
     

@@ -1451,9 +1451,6 @@ class SpKrypton(strax.LoopPlugin):
     strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
                  help='Maximum drifttime (ns)'),
 )
-
-
-
 @export
 class SPKryptonS2Fits(strax.LoopPlugin):
     """
@@ -1531,7 +1528,54 @@ class SPKryptonS2Fits(strax.LoopPlugin):
             pass
         return(r)
 
+
+# Other settigns are already defined for EventsSinglePhaseKryptonBasics
+@export
+class LargestPeaksPerEvent(strax.LoopPlugin):
+    """
+    fits gaussions on S2s 
+    """
+    __version__ = '0.0.0.3'
+    depends_on = ('events', 'peaks')
+  
     
+    def infer_dtype(self):
+        dtype = [
+            (("timestamps of 20 largest peaks, ordered by peak area", "peak_times"), np.int64, 20),
+            (("number of all peaks in this event", 'n_peaks'), np.int16),
+            
+            (("areas of 20 largest peaks / PE", "peak_areas"), np.float32, 20),
+            (("total area of event / PE", "total_area"), np.float32),
+            (("area of top 20 peaks combined / PE", "top20_area"), np.float32),
+            
+            (('timestamp of the base event', 'time'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
+        ]
+
+        return dtype
+              
+    
+    def compute_loop(self, event, peaks):
+        r = {}
+        
+        r["time"] = event["time"]
+        r["endtime"] = event["endtime"]
+        r["n_peaks"] = len(peaks)
+        r["total_area"] = np.sum(peaks["area"])
+        
+        peaks_large = peaks[np.argsort(peaks["area"])[::-1]][:20]
+        
+        peak_times = peaks_large["time"]
+        peak_areas = peaks_large["area"]
+        r["top20_area"] = np.sum(peaks_large["area"])
+        
+        
+        r["peak_times"] = [*peak_times, *([-1]*21)][:20]
+        r["peak_areas"] = [*peak_areas, *([-1]*21)][:20]
+        
+        
+        return(r)
+
 
     
 @export
@@ -1886,17 +1930,17 @@ class GaussfitEvents(strax.LoopPlugin):
     
 
 
-@export
-@strax.takes_config(
-    strax.Option('sp_krypton_s1_area_min', default=25,
-                 help='minimum area for a peak to potentially be a S1'),
-)
+# @export
+# @strax.takes_config(
+    # strax.Option('sp_krypton_s1_area_min', default=25,
+                 # help='minimum area for a peak to potentially be a S1'),
+# )
 @export
 class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.32'
+    __version__ = '0.0.0.33'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
     
@@ -1952,8 +1996,7 @@ class EventFits(strax.LoopPlugin):
         
         verbose = self.verbose
         self.iteration = self.iteration+1
-        print("\r", end = " "*100)
-        print(f"\r{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%}) ", end = "")
+        print(f"\n{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%}) ", end = "")
         
     
         r = {
@@ -1961,9 +2004,12 @@ class EventFits(strax.LoopPlugin):
             "t_peaks": [-1]*20,
         }
 
-        ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
+        # ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
+        # take the largest 20 peaks
+        ps = peaks[np.sort(np.argsort(peaks["area"])[:20])]
+        
         r["n_peaks"] = len(ps)
-
+        print(f" peaks: {len(peaks)}-{len(ps)} ", end = "")
 
         for i, p in enumerate(ps[:20]):
             r["t_peaks"][i] = p["time"]
@@ -2023,6 +2069,7 @@ class EventFits(strax.LoopPlugin):
         r["OK2"] = True
         
         self.fits_ok = self.fits_ok+1
+        
         
         return(r)
     

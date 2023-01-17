@@ -5,6 +5,9 @@ import numpy as np
 from scipy.ndimage.interpolation import shift
 from scipy.optimize import curve_fit
 
+from datetime import datetime
+
+
 import numba
 
 from . import utils
@@ -1940,20 +1943,24 @@ class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.33'
+    __version__ = '0.0.0.35'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
     
-    #
-    verbose = True
     
   
     def infer_dtype(self):
         dtype = [
             (("wheter the event fit is OK or not", "OK"), np.bool),
-            (("wheter the individual fits are OK or not", "OK2"), np.bool),
+            (("wheter the S1 fit are OK or not", "OK1"), np.bool),
+            (("wheter the S2 fit is OK or not", "OK2"), np.bool),
             (("which tests the event fails", "fails"), np.bool, 8),
             (("time of first 20 large peaks", "t_peaks"), np.int64, 20),
+            
+            (("start time of fits", "fits_timestamps"), np.float32, 4),
+            (("duration of fits (last entry is full time)", "fits_durations"), np.float32, 4),
+            
+            
             
             (("nuber of peaks in this event", "n_peaks"), np.int8),
             (("fit results", "fit"), np.float32, 11),
@@ -1991,84 +1998,98 @@ class EventFits(strax.LoopPlugin):
     iteration = 0
     fits_ok = 0
     
+    time_start = float(datetime.now().strftime("%s.%f"))
+              
     
     def compute_loop(self, event, peaks):
         
-        verbose = self.verbose
         self.iteration = self.iteration+1
-        print(f"\n{self.iteration} (OK: {self.fits_ok}: {self.fits_ok/self.iteration:6.1%}) ", end = "")
+        now = float(datetime.now().strftime("%s.%f"))
+        duration = (now - self.time_start)/60
+        print(f"\n{self.iteration:>8} (OK: {self.fits_ok:>8}: {self.fits_ok/self.iteration:6.1%} at {duration:6.1f} min) peaks: {len(peaks):>3} ", end = "", flush = True)
         
-    
+            
         r = {
             "fails": [-1]*8,
             "t_peaks": [-1]*20,
+            "fits_timestamps": [-1]*4,
+            "fits_durations": [-1]*4,
         }
-
+        r["fits_timestamps"][0] = float(datetime.now().strftime("%s.%f"))
+        
+        
         # ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
         # take the largest 20 peaks
-        ps = peaks[np.sort(np.argsort(peaks["area"])[:20])]
+      
+    
+        ps = peaks[np.sort(np.argsort(peaks["area"])[:10])]
+        print(f"t_sort: {r['fits_timestamps'][0]-float(datetime.now().strftime('%s.%f')):4.1f} s ", end = "")
         
-        r["n_peaks"] = len(ps)
-        print(f" peaks: {len(peaks)}-{len(ps)} ", end = "")
+        r["n_peaks"] = len(peaks)
 
+
+        
         for i, p in enumerate(ps[:20]):
             r["t_peaks"][i] = p["time"]
 
-        if len(ps) < 2:
+        if len(ps) < 1:
             r["fails"][0] = True
             return(r)
 
         ets, ewf = eff.build_event_waveform(ps)
-        if verbose is True: print("1", end = "")
-        fit, sfit, p0, bounds = eff.fit_full_event(ets, ewf, ps)
-        if verbose is True: print("2", end = "")
-        if fit is False:
-            r["fails"][1] = True
-            return(r)
-        r["fit"] = fit
-        r["sfit"] = sfit
-        r["fit_p0"] = p0
         try:
+            fit, sfit, p0, bounds = eff.fit_full_event(ets, ewf, ps)
+            r["fit"] = fit
+            r["sfit"] = sfit
+            r["fit_p0"] = p0
+        
             rp = eff.extract_info(fit = fit)
             r = {**r, **rp}
-        except Exception as e:
-            print(e)
-            r["fails"][4] = True
-            return(r)
-        r["OK"] = True
+            r["OK"] = True
+        except Exception:
+              r["fails"][4] = True
+        r["fits_timestamps"][1] = float(datetime.now().strftime("%s.%f"))
+        r["fits_durations"][0] = r["fits_timestamps"][1] - r["fits_timestamps"][0]
+        print(f"t_ev: {r['fits_durations'][0]:4.1f} s ", end = "")
 
-        if verbose is True: print("3", end = "")
-        fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, fit, bounds)
-        if verbose is True: print("4", end = "")
-        if fit_S1 is False:
-            r["fails"][2] = True
-            return(r)
-        r["fit_S1"] = fit_S1
-        r["sfit_S1"] = sfit_S1
-
-        if verbose is True: print("5", end = "")
-        fit_S2, sfit_S2 = eff.fit_S2s(ets, ewf, fit, fit_S1 , bounds)
-        if verbose is True: print("6", end = "")
-        if fit_S2 is False:
-            r["fails"][3] = True
-            return(r)
-        r["fit_S2"] = fit_S2
-        r["sfit_S2"] = sfit_S2
-
-        if verbose is True: print("7", end = "")
-        t_S21, t_decay, sigma, A3, A4 = fit_S2
-        t_S11, t_decay, tau, a, A1, A2 = fit_S1
+          
+        
+        
         try:
+            fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, fit, bounds)
+            r["OK1"] = True
+            r["fit_S1"] = fit_S1
+            r["sfit_S1"] = sfit_S1
+        except Exception:
+              r["fails"][2] = True
+              
+        r["fits_timestamps"][2] = float(datetime.now().strftime("%s.%f"))
+        r["fits_durations"][1] = r["fits_timestamps"][2] - r["fits_timestamps"][1]
+        print(f"t_S1: {r['fits_durations'][1]:4.1f} s ", end = "")
+              
+        
+        
+        try:
+            fit_S2, sfit_S2 = eff.fit_S2s(ets, ewf, fit, fit_S1 , bounds)
+            r["fit_S2"] = fit_S2
+            r["sfit_S2"] = sfit_S2
+
+            t_S21, t_decay, sigma, A3, A4 = fit_S2
+            t_S11, t_decay, tau, a, A1, A2 = fit_S1
+        
             rp = eff.extract_info(fit = fit, fit_S1 = fit_S1, fit_S2 = fit_S2)
             r = {**r, **rp}
-        except Exception as e:
-            print(e)
-            r["fails"][5] = True
-            return(r)
-        if verbose is True: print("8", end = "")
-        r["OK2"] = True
+            r["OK2"] = True
+            self.fits_ok = self.fits_ok+1
+        except Exception:
+              r["fails"][3] = True
+        r["fits_timestamps"][3] = float(datetime.now().strftime("%s.%f"))
+        r["fits_durations"][2] = r["fits_timestamps"][3] - r["fits_timestamps"][2]
+        r["fits_durations"][3] = r["fits_timestamps"][3] - r["fits_timestamps"][0]
+        print(f"t_S2: {r['fits_durations'][2]:4.1f} s ", end = "")
+        print(f"t_all: {r['fits_durations'][3]:4.1f} s", end = "")
         
-        self.fits_ok = self.fits_ok+1
+        
         
         
         return(r)

@@ -44,7 +44,7 @@ def print_p0_outa_bounds(p0, bounds, pars = f_event_txt):
     except Exception:
         return(None)
 
-def build_event_waveform(ps):
+def build_event_waveform(ps, baseline = True):
     t0 = ps[0]["time"]
 
     ets = np.array([])
@@ -56,7 +56,7 @@ def build_event_waveform(ps):
 
         t_end = max([0, *ets])
         dt = t_offs - t_end
-        if dt > 25:
+        if (dt > 25) and (baseline is True):
             t_insert = np.arange(t_end+10, t_offs-10 , 10)
             dataz = np.zeros_like(t_insert)
             ets = np.append(ets, t_insert)

@@ -1933,17 +1933,17 @@ class GaussfitEvents(strax.LoopPlugin):
     
 
 
-# @export
-# @strax.takes_config(
-    # strax.Option('sp_krypton_s1_area_min', default=25,
-                 # help='minimum area for a peak to potentially be a S1'),
-# )
+@export
+@strax.takes_config(
+    strax.Option('peak_area_min', default=20,
+                 help='minimum area for a peak to potentially be a S1'),
+)
 @export
 class EventFits(strax.LoopPlugin):
     """
     stolen from SPKrypton
     """
-    __version__ = '0.0.0.35'
+    __version__ = '0.0.0.36'
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
     
@@ -1951,6 +1951,10 @@ class EventFits(strax.LoopPlugin):
   
     def infer_dtype(self):
         dtype = [
+            (('timestamp of the base event', 'time'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
+            
+            
             (("wheter the event fit is OK or not", "OK"), np.bool),
             (("wheter the S1 fit are OK or not", "OK1"), np.bool),
             (("wheter the S2 fit is OK or not", "OK2"), np.bool),
@@ -1963,6 +1967,8 @@ class EventFits(strax.LoopPlugin):
             
             
             (("nuber of peaks in this event", "n_peaks"), np.int8),
+            (("nuber of large peaks in this event", "n_peaks_used"), np.int8),
+            
             (("fit results", "fit"), np.float32, 11),
             (("fit uncertaintys", "sfit"), np.float32, 11),
             (("fit starting parameters", "fit_p0"), np.float32, 11),
@@ -1995,7 +2001,7 @@ class EventFits(strax.LoopPlugin):
 
         return dtype
         
-    iteration = 0
+    iteration = -1
     fits_ok = 0
     
     time_start = float(datetime.now().strftime("%s.%f"))
@@ -2006,10 +2012,12 @@ class EventFits(strax.LoopPlugin):
         self.iteration = self.iteration+1
         now = float(datetime.now().strftime("%s.%f"))
         duration = (now - self.time_start)/60
-        print(f"\n{self.iteration:>8} (OK: {self.fits_ok:>8}: {self.fits_ok/self.iteration:6.1%} at {duration:6.1f} min) peaks: {len(peaks):>3} ", end = "", flush = True)
+        print(f"\n{self.iteration:>8} (OK: {self.fits_ok:>8}: {self.fits_ok/(self.iteration+1):6.1%} at {duration:6.1f} min) peaks: {len(peaks):>3} ", end = "", flush = True)
         
             
         r = {
+            'time': event['time'],
+            'endtime': event['endtime'],
             "fails": [-1]*8,
             "t_peaks": [-1]*20,
             "fits_timestamps": [-1]*4,
@@ -2017,23 +2025,26 @@ class EventFits(strax.LoopPlugin):
         }
         r["fits_timestamps"][0] = float(datetime.now().strftime("%s.%f"))
         
-        
+        ps = peaks[peaks["area"] > self.config['peak_area_min']]
         # ps = peaks[peaks["area"] >= self.config["sp_krypton_s1_area_min"]]
-        # take the largest 20 peaks
       
     
-        ps = peaks[np.sort(np.argsort(peaks["area"])[:10])]
-        print(f"t_sort: {r['fits_timestamps'][0]-float(datetime.now().strftime('%s.%f')):4.1f} s ", end = "")
+        # take the largest 20 peaks
+        # ps = peaks[np.sort(np.argsort(peaks["area"])[:10])]
+        # print(f"t_sort: {r['fits_timestamps'][0]-float(datetime.now().strftime('%s.%f')):4.1f} s ", end = "")
+        ps = peaks[peaks["area"] > self.config['peak_area_min']]
         
         r["n_peaks"] = len(peaks)
+        r["n_peaks_used"] = len(ps)
 
-
+        print(f"peaks: {len(ps)} ", end = "")
         
         for i, p in enumerate(ps[:20]):
             r["t_peaks"][i] = p["time"]
 
         if len(ps) < 1:
             r["fails"][0] = True
+            print("no large enough peaks in event ", end = "")
             return(r)
 
         ets, ewf = eff.build_event_waveform(ps)

@@ -44,7 +44,7 @@ def print_p0_outa_bounds(p0, bounds, pars = f_event_txt):
     except Exception:
         return(None)
 
-def build_event_waveform(ps, baseline = True):
+def build_event_waveform(ps, baseline_spacing = 10):
     t0 = ps[0]["time"]
 
     ets = np.array([])
@@ -56,8 +56,8 @@ def build_event_waveform(ps, baseline = True):
 
         t_end = max([0, *ets])
         dt = t_offs - t_end
-        if (dt > 25) and (baseline is True):
-            t_insert = np.arange(t_end+10, t_offs-10 , 10)
+        if (dt > 4 * baseline_spacing) and (baseline_spacing > 0):
+            t_insert = np.arange(t_end+baseline_spacing, t_offs-baseline_spacing , baseline_spacing)
             dataz = np.zeros_like(t_insert)
             ets = np.append(ets, t_insert)
             ewf = np.append(ewf, dataz)
@@ -109,7 +109,7 @@ sep_props = {
 }
 
 
-def f_event_p0(ets, ewf, ps):
+def f_event_p0(ets, ewf, ps, t_decay_default = 1500, **kwargs):
     t0 = ps["time"][0]
     ts = ps["time"] - t0
 
@@ -142,7 +142,7 @@ def f_event_p0(ets, ewf, ps):
             t_decay = id_second_peak * peak_S11["dt"] - t_S11
         except:
             # fallback very high as low p0s tend to merge both S1 peaks during fit
-            t_decay = 1500
+            t_decay = t_decay_default
     else:
         # two distinct peaks found
         t_decay = peak_S12["time"] - peak_S11["time"]
@@ -169,7 +169,7 @@ def f_event_p0(ets, ewf, ps):
     if t_S11 < 0:
         t_S11 = 0
     if t_decay < 0:
-        t_decay = 1500
+        t_decay = t_decay_default
     if t_drift < 0:
         t_drift = 100
 
@@ -207,7 +207,7 @@ def extract_bounds(bounds, ids):
 
 
 
-def fit_full_event(ets, ewf, ps):
+def fit_full_event(ets, ewf, ps, **kwargs):
     '''
     returns fit, sfit, p0, bounds
     '''
@@ -217,7 +217,7 @@ def fit_full_event(ets, ewf, ps):
     bounds = False
     
     try:
-        p0 = f_event_p0(ets, ewf, ps)
+        p0 = f_event_p0(ets, ewf, ps, **kwargs)
         bounds = f_event_bounds(ets, ewf, ps)
         
         ids_all = range(len(p0))

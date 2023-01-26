@@ -11,10 +11,17 @@ from . import plugins
 
 
 # for now only tranisent times are used
-time_delay_default = 12*np.ones(8)
-time_delay_default[0] = 46
+# time_delay_default = 12*np.ones(8)
+# time_delay_default[0] = 46
+# time_delay_default = list(time_delay_default)
 
+# optimised peak width:
+time_delay_default = 0*np.ones(8)
+time_delay_default[0] = 50
 time_delay_default = list(time_delay_default)
+
+
+
 
 def process_runlist(run_id):
     if isinstance(run_id, str):

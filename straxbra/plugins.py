@@ -1696,6 +1696,34 @@ class PeaksLarge(strax.Plugin):
         
         return(ps)
 
+
+@export
+class NEvents(strax.Plugin):
+    """
+    just returns the number of Events
+    """
+    __version__ = "0.0.0.4"
+    parallel = False
+    depends_on = ('events',)
+
+    def infer_dtype(self):
+        _dtype = [
+            (("Number of events in this run", "n"), np.int32)
+        ]
+    
+        return(_dtype)
+    
+    
+    def compute(self, events):
+        r = {
+            "n": [len(events)]
+        }
+        
+        
+        return(r)
+
+
+
 @export
 @strax.takes_config(
     strax.Option('sp_krypton_s1_area_min', default=25,
@@ -2131,12 +2159,9 @@ class EventInfo(strax.MergeOnlyPlugin):
 @strax.takes_config(
     strax.Option('peak_area_min', default=20,
                  help='minimum area for a peak to potentially be a S1'),
-    strax.Option('baseline_spacing', default=10,
+    strax.Option('baseline_spacing', default=-1,
                  help='how far the inserted baseline peaks between peeks are spaced, set to negative value to turn off'),
-    # strax.Option('custom_settings', default={"p0_t_decay_default": 1500},
-                 # help='custom parameters '),
-                 
-    strax.Option('t_decay_default', default=1500,
+    strax.Option('t_decay_default', default=0,
                  help='fallback value for decay time'),
                  
                  
@@ -2148,7 +2173,6 @@ class EventFits(strax.LoopPlugin):
     stolen from SPKrypton
     """
     __version__ = '0.0.0.37'
-    # 0.0.0.37: introduced custom parameters
     # 0.0.0.36: all events exist
     # 0.0.0.18: based on individual fits
     depends_on = ('events', 'peaks')
@@ -2329,6 +2353,160 @@ class EventFits(strax.LoopPlugin):
 
 @export
 @strax.takes_config(
+    strax.Option('peak_area_min', default=20,
+                 help='minimum area for a peak to potentially be a S1'),
+    strax.Option('baseline_spacing', default=10,
+                 help='how far the inserted baseline peaks between peeks are spaced, set to negative value to turn off'),
+    # strax.Option('custom_settings', default={"p0_t_decay_default": 1500},
+                 # help='custom parameters '),
+                 
+    strax.Option('t_decay_default', default=1500,
+                 help='fallback value for decay time'),
+
+)
+@export
+class EventFitsS1(strax.LoopPlugin):
+    """
+    stolen from SPKrypton
+    """
+    __version__ = '0.0.0.9'
+    depends_on = ('events', 'peaks', "event_fits")
+    
+    
+  
+    def infer_dtype(self):
+        dtype = [
+            (('timestamp of the base event', 'time'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
+            
+            
+            (('where the S1 fit quit', 'exit_S1'), np.int64),
+            
+            
+            (("wheter the event fit is OK or not", "OK"), np.bool),
+            (("wheter the S1 fit are OK or not", "OK1"), np.bool),
+            
+            (("start time of fit", "fit_timestamp_S1"), np.float32),
+            (("duration of fit", "fit_duration_S1"), np.float32),
+            
+            
+            
+            
+            
+            (("fit results for S1 fit", "fit_S1"), np.float32, 6),
+            (("fit uncertaintys for S1 fit", "sfit_S1"), np.float32, 6),
+            
+            (("time of maximum of peak", "t_max_S1"), np.float32, 2),
+            (("time of middle of peak", "t_mid_S1"), np.float32, 2),
+            
+            (("signal widths", "widths_S1"), np.float32, 2),
+            (("signal areas", "areas_S1"), np.float32, 2),
+            
+            (("decay time", "decaytime_S1"), np.float32),
+        ]
+
+        return dtype
+        
+    iteration = -1
+    fits_ok = 0
+    
+    time_start = float(datetime.now().strftime("%s.%f"))
+
+    
+    def compute_loop(self, event, peaks):
+        
+        self.iteration = self.iteration+1
+        now__ = datetime.now()
+        now = float(now__.strftime("%s.%f"))
+        now_hm = now__.strftime("%H:%M")
+        duration = (now - self.time_start)/60
+        
+            
+        r = {
+            'time': event['time'],
+            'endtime': event['endtime'],
+            'OK': event['OK'],
+            'fit_S1': -1 * 6,
+            'sfit_S1': -1 * 6,
+            'exit_S1': 1,
+        }
+        
+        if event["OK"] == False:
+            return(r)
+        print(f"\r{self.iteration:>8} OK: {self.fits_ok:>8}: {self.fits_ok/(self.iteration+1):6.1%} {duration:6.1f} min ({now_hm})", end = "")
+        
+        
+        r["fit_timestamp_S1"] = float(datetime.now().strftime("%s.%f"))
+        ps = peaks[peaks["area"] > self.config['peak_area_min']]
+        # print(f"ps: {len(ps)} ", end = "", flush = True)
+        
+        r['exit_S1'] = 2
+        if len(ps) < 1:
+            print("no large enough peaks in event ", end = "")
+            return(r)
+            
+        
+        r['exit_S1'] = 3
+
+        # print(" w", end = "", flush = True)
+        ets, ewf = eff.build_event_waveform(
+            ps,
+            baseline_spacing = self.config['baseline_spacing'],
+        )
+        r['exit_S1'] = 4
+        
+        try:
+            # print("b", end = "", flush = True)
+            bounds = eff.f_event_bounds(ets, ewf, ps)
+            r['exit_S1'] = 6
+            bounds_S1 = eff.extract_bounds(bounds, eff.ids_de)
+        
+        
+            r['exit_S1'] = 7
+            # print(f"f", end = "", flush = True)
+            
+            fit_S1, sfit_S1 = eff.fit_S1s(ets, ewf, event["fit"], bounds = bounds_S1)
+            r['exit_S1'] = 8
+            
+            # print("e", end = "", flush = True)
+            rp = eff.extract_info(fit = event["fit"], fit_S1 = fit_S1)
+            r['exit_S1'] = 8
+            # print("!", end = "", flush = True)
+            
+            r["fit_S1"] = fit_S1
+            r["sfit_S1"] = sfit_S1
+            r["decaytime_S1"] = rp["decaytime"]
+            r["areas_S1"] = rp["areas"][:2]
+            r["widths_S1"] = rp["widths"][:2]
+            r["t_max_S1"] = rp["t_max"][:2]
+            r["t_mid_S1"] = rp["t_mid"][:2]
+            
+            
+            
+            r["OK1"] = True
+            self.fits_ok = self.fits_ok+1
+            r['exit_S1'] = 0
+            
+        except Exception:
+            pass
+             
+        
+        r["fit_duration_S1"] = float(datetime.now().strftime("%s.%f")) - r["fit_timestamp_S1"]
+        
+        # print(f" fit: {r['fit_duration']:4.1f} s, exit: {r['exit_S1']}", end = "", flush = True)
+        
+        
+        
+        
+        
+        return(r)
+    
+
+
+
+
+@export
+@strax.takes_config(
     strax.Option('min_areas', default=[20, 20, 25, 25],
                  help='minimum areas for a peak to be a Signal'),
     strax.Option('max_areas', default=[400, 400, np.inf, np.inf],
@@ -2350,7 +2528,7 @@ class EventFits(strax.LoopPlugin):
 )
 @export
 class EventFitsSummary(strax.LoopPlugin):
-    __version__ = '0.0.0.31'
+    __version__ = '0.0.0.32'
     depends_on = ('events', 'event_fits')
     
     
@@ -2381,6 +2559,7 @@ class EventFitsSummary(strax.LoopPlugin):
             
             (("signal widths", "widths"), np.float32, 9),
             (("signal areas", "areas"), np.float32, 9),
+            (("signal area  ratios", "area_ratios"), np.float32, 2),
             
             
             (("area ratios (S11/S12, S21/S22, S2/S1)", "areas_ratios"), np.float32, 3),
@@ -2416,6 +2595,7 @@ class EventFitsSummary(strax.LoopPlugin):
             "areas_org": event["areas"],
             "widths_org": event["widths"],
             "afterpulse": False,
+            "area_ratios": [-1, -1],
         }
             
         # there is nothing to do if the fit failed
@@ -2528,6 +2708,7 @@ class EventFitsSummary(strax.LoopPlugin):
             r["widths"][7] = widths[2]
         else:
             r["DEV"][2] = 2
+            r["signal_split"][1] = True 
             r["areas"][2] = areas[2]
             r["widths"][2] = widths[2]
             r["areas"][3] = areas[3]
@@ -2537,6 +2718,17 @@ class EventFitsSummary(strax.LoopPlugin):
         
         
         r["time_drift"] = r["drifttime"]
+        
+        
+        
+        
+        if r["signal_split"][0] is True:
+            r["area_ratios"][0] = areas[0]/areas[1]
+        
+        if r["signal_split"][1] is True:
+            r["area_ratios"][1] = areas[2]/areas[3]
+        
+        
         
         return(r)
     

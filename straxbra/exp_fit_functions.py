@@ -9,6 +9,12 @@ f_event_gauss_pars = ["t_0", "\\sigma", "A"]
 f_event_txt = ["t_S11", "t_decay", "t_drift", "tau", "a", "sigma", "A1", "A2", "A3", "A4", "dct_offset"]
 f_de_txt = ["t_S11", "t_decay", "tau", "a", "A1", "A2"]
 f_dg_txt = ["t_drift", "t_decay", "sigma", "A3", "A4", "dct_offset"]
+f_event_txt_dict = {x:i for i,x in enumerate(f_event_txt)}
+
+
+ids_de = [f_event_txt_dict[x] for x in f_de_txt]
+ids_dg = [f_event_txt_dict[x] for x in f_dg_txt]
+
 
 
 def print_results(fit, fit_S1=False, fit_S2=False, p0 = False):
@@ -263,26 +269,25 @@ def fit_full_event(ets, ewf, ps, **kwargs):
 def fit_S1s(ets, ewf, fit, bounds):
     t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
     
-    
     fit = False
     sfit = False
     
     try:
         p0 = (t_S11, t_decay, tau, a, A1, A2)
-        bounds = extract_bounds(bounds, [0, 1, 3, 4, 6, 7])
         
         idx_S1 = np.nonzero((ets > t_S11 - 5 * tau) & (ets < t_S11 +t_decay+ 5*tau))[0]
         ets_S1 = ets[idx_S1]
         ewf_S1 = ewf[idx_S1]
     
+        
     
         fit, cov = curve_fit(
             f_event_sum_exp,
             ets_S1,
             ewf_S1,
             p0 = p0,
-            # bounds = bounds,
             absolute_sigma=True,
+            bounds = bounds,
         )
         sfit = np.diag(cov)**.5
     
@@ -314,8 +319,8 @@ def fit_S2s(ets, ewf, fit, fit_S1, bounds):
             ets_S2,
             ewf_S2,
             p0 = p0,
-            # bounds = bounds,
             absolute_sigma=True,
+            bounds = bounds,
         )
         sfit = np.diag(cov)**.5
     
@@ -324,14 +329,15 @@ def fit_S2s(ets, ewf, fit, fit_S1, bounds):
         # print_p0_outa_bounds(p0, bounds, f_dg_txt)
     return(fit, sfit)
 
-def get_aw(f, pars, dt = .5):
+def get_aw(f, pars, N = 10_000):
     '''
     return(area, width, t_mid, t_max)
     '''
     t0 = pars[0] - 5*pars[1]
     t1 = pars[0] + 5*pars[1]
     
-    t = np.arange(t0, t1, dt)
+    t = np.linspace(t0, t1, N)
+    dt = t[1]-t[0]
     y = f(t, *pars)
     
     
@@ -351,17 +357,18 @@ def extract_info(fit = False, fit_S1=False, fit_S2=False):
         t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
         suffix = False
         t_S21 = t_S11 + t_drift
-    if (fit_S1 is not False) and (fit_S2 is not False):
-        t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset = fit
-        t_S21, t_decay, sigma, A3, A4 = fit_S2
+    if (fit_S1 is not False):
         t_S11, t_decay, tau, a, A1, A2 = fit_S1
+    t_decay2 = t_decay + dct_offset
+    if (fit_S2 is not False):
+        t_S21, t_decay2, sigma, A3, A4 = fit_S2
         suffix = "_2"
         t_drift = t_S21 - t_S11
     t_S12 = t_S11 + t_decay
-    t_S22 = t_S21 + t_decay + dct_offset
+    t_S22 = t_S21 + t_decay2
     
     r = {
-        f"decaytime": t_decay,
+        "decaytime": t_decay,
         "drifttime": t_drift/1000,
         "areas":[-1]*4,
         "widths":[-1]*4,

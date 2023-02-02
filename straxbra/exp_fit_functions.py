@@ -1,5 +1,10 @@
+__version__ = "eff_0.1"
+
 import numpy as np
 from scipy.optimize import curve_fit
+from datetime import datetime
+
+
 
 f_event_pars = ["t_\mathrm{{S11}}", "t_\mathrm{{decay}}", "t_\mathrm{{drift'}}", "\\tau", "a", "\\sigma", "A_\\mathrm{{S11}}", "A_\\mathrm{{S12}}", "A_\\mathrm{{S21}}", "A_\\mathrm{{S22}}", "dt_\\mathrm{{offset}}"]
 
@@ -10,10 +15,77 @@ f_event_txt = ["t_S11", "t_decay", "t_drift", "tau", "a", "sigma", "A1", "A2", "
 f_de_txt = ["t_S11", "t_decay", "tau", "a", "A1", "A2"]
 f_dg_txt = ["t_drift", "t_decay", "sigma", "A3", "A4", "dct_offset"]
 f_event_txt_dict = {x:i for i,x in enumerate(f_event_txt)}
+f_units = {
+    "t_S11": "ns",
+    "t_decay": "ns",
+    "t_drift": "ns",
+    "tau": "ns",
+    "a": "ns",
+    "sigma": "ns",
+    "A1": "PE/ns",
+    "A2": "PE/ns",
+    "A3": "PE/ns",
+    "A4": "",
+    "dct_offset":"ns",
+}
+fit_labels = {
+    "fit": f_event_txt,
+    "fit_S1": f_de_txt,
+    "fit_S2": f_dg_txt,
+}
+
+def get_fit_field(ds, fit_labels = None):
+    '''
+    returns fit_field
+    '''
+    if fit_labels is None:
+        fit_labels = globals()['fit_labels']
+    
+    fit_fields = [x for x in ds.dtype.names if x in fit_labels]
+    return(fit_fields[0])
+
+def get_fit_infos(ds, fit_labels = None, f_units = None):
+    '''
+    returns fit_field, fit_labels, fit_units
+    '''
+    if fit_labels is None:
+        fit_labels = globals()['fit_labels']
+    if f_units is None:
+        f_units = globals()['f_units']
+    
+    fit_field = get_fit_field(ds, fit_labels = fit_labels)
+    fit_labels = fit_labels[fit_field]
+    fit_units = [f_units[fl] for fl in fit_labels]
+    return(fit_field, fit_labels, fit_units)
 
 
 ids_de = [f_event_txt_dict[x] for x in f_de_txt]
 ids_dg = [f_event_txt_dict[x] for x in f_dg_txt]
+
+
+
+# utility functions for timing long fits
+def now_f():
+    return(float(datetime.now().strftime("%s.%f")))
+
+def now_time():
+    return(datetime.now().strftime("%H:%M"))
+
+def sec_to_human(t, fmt = "6.1f"):
+    if t < 0.001:
+        return(f" {t*1e6:{fmt}} µs")
+    if t < 1:
+        return(f" {t*1000:{fmt}} ms")
+    if t < 120:
+        return(f"{t:{fmt}} sec")
+    if t < 3600:
+        return(f"{t/60:{fmt}} min")
+    else:
+        return(f"{t/3600:{fmt}} h  ") 
+   
+
+def qp(*args, sep = ", ", end = "", flush = True):
+    print(sep.join(map(str, args)), end = end, flush = flush)
 
 
 
@@ -50,7 +122,7 @@ def print_p0_outa_bounds(p0, bounds, pars = f_event_txt):
     except Exception:
         return(None)
 
-def build_event_waveform(ps, baseline_spacing = 10):
+def build_event_waveform(ps, baseline_spacing = -1):
     t0 = ps[0]["time"]
 
     ets = np.array([])
@@ -119,6 +191,13 @@ def f_event_p0(ets, ewf, ps, t_decay_default = 1500, **kwargs):
     t0 = ps["time"][0]
     ts = ps["time"] - t0
 
+    # 0: something went wrong
+    # 1: one peak method
+    # 2: two peaks method    
+    # 5: fallback 
+    # negative number: identical, but was was lower than 0
+    p0_decay_method = 0
+    
     try:
         ids_s1_pot = np.nonzero(ps["area"] < 500)[0]
         ps_S1s = ps[ids_s1_pot]
@@ -146,12 +225,15 @@ def f_event_p0(ets, ewf, ps, t_decay_default = 1500, **kwargs):
             id_first_offset = np.nonzero(id_diff > 10)[0][0]
             id_second_peak = id_largest[id_first_offset+1]
             t_decay = id_second_peak * peak_S11["dt"] - t_S11
+            p0_decay_method = 1
         except:
             # fallback very high as low p0s tend to merge both S1 peaks during fit
             t_decay = t_decay_default
+            p0_decay_method = 5
     else:
         # two distinct peaks found
         t_decay = peak_S12["time"] - peak_S11["time"]
+        p0_decay_method = 2
 
     # S1s Done now S2(s)
 
@@ -175,7 +257,8 @@ def f_event_p0(ets, ewf, ps, t_decay_default = 1500, **kwargs):
     if t_S11 < 0:
         t_S11 = 0
     if t_decay < 0:
-        t_decay = t_decay_default
+        t_decay = -t_decay_default
+        p0_decay_method = -1 * p0_decay_method
     if t_drift < 0:
         t_drift = 100
 
@@ -191,7 +274,7 @@ def f_event_p0(ets, ewf, ps, t_decay_default = 1500, **kwargs):
     dct_offset = 0
 
 
-    return(np.array([t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset]))
+    return(np.array([t_S11, t_decay, t_drift, tau, a, sigma, A1, A2, A3, A4, dct_offset]), p0_decay_method)
 
 
 
@@ -221,9 +304,9 @@ def fit_full_event(ets, ewf, ps, **kwargs):
     sfit = False
     p0 = False
     bounds = False
-    
+    p0_decay_method = -1000
     try:
-        p0 = f_event_p0(ets, ewf, ps, **kwargs)
+        p0, p0_decay_method = f_event_p0(ets, ewf, ps, **kwargs)
         bounds = f_event_bounds(ets, ewf, ps)
         
         ids_all = range(len(p0))
@@ -263,7 +346,7 @@ def fit_full_event(ets, ewf, ps, **kwargs):
     except Exception as e:
         print(f" Event fit failed: {e}")
         print_p0_outa_bounds(p0, bounds)
-    return(fit, sfit, p0, bounds)
+    return(fit, sfit, p0, bounds, p0_decay_method)
 
 
 def fit_S1s(ets, ewf, fit, bounds):

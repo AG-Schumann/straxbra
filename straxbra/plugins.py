@@ -1135,7 +1135,7 @@ class SpKrypton(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.4.32'
+    __version__ = '0.0.4.33'
     depends_on = ('events', 'peaks', 'peak_basics')
   
   
@@ -1375,7 +1375,8 @@ class SpKrypton(strax.LoopPlugin):
         else:
             # combined S1 
             result["area_s1"] = S11["area"] + S12["area"]
-            result["width_s1"] = S11["range_50p_area"] + S12["range_50p_area"]
+            result["width_s1"] = S11["range_50p_area"]
+            # + S12["range_50p_area"]
             # store first decay for later use 
         
         
@@ -1459,7 +1460,7 @@ class SPKryptonS2Fits(strax.LoopPlugin):
     """
     fits gaussions on S2s 
     """
-    __version__ = '0.0.0.32'
+    __version__ = '0.0.0.33'
     depends_on = ('sp_krypton', 'peaks')
   
     
@@ -1520,7 +1521,7 @@ class SPKryptonS2Fits(strax.LoopPlugin):
             r["width_S22"] =  S22_props[1]
             
             r["area_S2"] =  S21_props[0] + S22_props[0]
-            r["width_S2"] =  S21_props[1] + S22_props[1]
+            r["width_S2"] =  S21_props[1]
             
             r["fit"] =  fit
             r["sfit"] =  sfit
@@ -1530,90 +1531,6 @@ class SPKryptonS2Fits(strax.LoopPlugin):
 #             print(f" {e}")
             pass
         return(r)
-
-@export
-class SPKryptonSummary(strax.LoopPlugin):
-    """
-    Summary plugin for sp_krypton and sp_krypton_s2_fits
-    
-    yields area/width fields analog to event_fits
-    indizes: 
-    'first S1', 'second S1', 'first S2', 'second S2',
-       'unsplit S2', 'total S1', 'total S2'
-    
-    """
-    __version__ = '0.0.0.1'
-    depends_on = ('sp_krypton', "sp_krypton_s2_fits",  'peaks')
-  
-    
-    def infer_dtype(self):
-        dtype = [
-            (('timestamp of the base event', 'time'), np.int64),
-            (('end timestamp of the base event', 'endtime'), np.int64),
-            
-            (("wheter the event is an event", "is_event"), np.bool_),
-            (("wheter the fit went OK", "OK"), np.bool_),
-            (("all signals areas", "areas"), np.float32, 8),
-            (("all signals widths", "widths"), np.float32, 8),
-            
-            (("drifttime of event", "drifttime"), np.float32),
-            (("decaytime of event", "decaytime"), np.float32),
-            
-        ]
-
-        return dtype
-              
-    
-    def compute_loop(self, event, peaks):
-        r = {
-            "time": event["time"],
-            "endtime": event["endtime"],
-            "is_event": event["is_event"],
-            "OK": event["OK"],
-            "drifttime": event["time_drift"],
-            "decaytime": event["time_decay_s1"],
-            
-        }
-        
-        areas = [-1] * 8
-        widths = [-1] * 8
-        
-        
-        # 'first S1', 'second S1', 'first S2', 'second S2', 
-       # 'unsplit S2', 'total S1', 'total S2'
-        
-        # S1 stuff sp_krypton, lowercase s
-        areas[0] = event["area_s11"]
-        areas[1] = event["area_s12"]
-        widths[0] = event["width_s11"]
-        widths[1] = event["width_s12"]
-        widths[6] = event["width_s1"]
-        areas[6] = event["area_s1"]
-        
-        # s2 fits: capital S
-        if event["area_S22"] > 25:
-            # split S2
-            areas[2] = event["area_S21"]
-            areas[3] = event["area_S22"]
-            widths[2] = event["width_S21"]
-            widths[3] = event["width_S22"]
-        else:
-            # unsplit S2
-            areas[5] = event["area_S2"]
-            widths[5] = event["width_S2"]
-        
-        # total
-        areas[7] = event["area_S2"]
-        widths[7] = event["width_S2"]
-        
-        
-        r["areas"] = areas
-        r["widths"] = widths
-        
-        return(r)
-
-
-
 
 
 # Other settigns are already defined for EventsSinglePhaseKryptonBasics
@@ -2459,7 +2376,7 @@ class EventFitsS1(strax.LoopPlugin):
         
         r["fit_duration_S1"] = float(datetime.now().strftime("%s.%f")) - r["fit_timestamp_S1"]
         a1, a2 = r["areas_S1"]
-        print(f" fit: {r['fit_duration_S1']:4.1f} s, S1s: ({a1:.1f} & {a2:.1f}) PE", end = "", flush = True)
+        print(f" fit: {eff.sec_to_human(r['fit_duration_S1'])} s, S1s: ({a1:.1f} & {a2:.1f}) PE", end = "", flush = True)
         
         
         
@@ -2494,7 +2411,7 @@ class EventFitsS1(strax.LoopPlugin):
 )
 @export
 class EventFitsSummary(strax.LoopPlugin):
-    __version__ = '0.0.0.35'
+    __version__ = '0.0.0.48'
     depends_on = ('events', 'event_fits', 'event_fits_s1')
     
     
@@ -2506,16 +2423,26 @@ class EventFitsSummary(strax.LoopPlugin):
             
             
             (("wheter the event is OK", "OK"), np.bool),
+            (("wheter the S1s are considered clean", "clean_S1"), np.bool),
             (("wheter the event is considered clean", "clean"), np.bool),
             
             (("decay time", "decaytime"), np.float32),
             (("drift time", "drifttime"), np.float32),
             
-            
-            (("signal widths", "widths"), np.float32, 6),
-            (("signal areas", "areas"), np.float32, 6),
-            
+            (("signal widths", "widths"), np.float32, 8),
+            (("signal areas", "areas"), np.float32, 8),
             (("area ratios (S11/S12, S21/S22, S2/S1)", "areas_ratios"), np.float32, 3),
+            
+            (("wheter the S1 and S2 exist", "signals_exist"), np.bool, 2),
+            (("wheter the S1 and S2 are split", "signals_split"), np.bool, 2),
+            (("which peak is the unsplit S1/s2", "id_signals"), np.int8, 2),
+            
+            
+            
+            (("all corrected areas", "areas_corrected"), np.float32, 8),
+            (("xy position", "xy"), np.float32, 2),
+            (("z position", "z"), np.float32),
+            
         ]
 
         return dtype
@@ -2527,13 +2454,18 @@ class EventFitsSummary(strax.LoopPlugin):
             'endtime': event['endtime'],
             'OK': False,
             'clean': False,
+            'clean_S1': False,
+            
             
             'decaytime': -1,
             'drifttime': -1,
             
-            "widths": [-1]*6,
-            "areas": [-1]*6,
+            "widths": [-1]*8,
+            "areas": [-1]*8,
+            "id_signals": [-1, -1],
             "areas_ratios": [-1, -1, -1],
+            "signals_exist": [False, False],
+            "signals_split": [False, False],
         }
             
         # there is nothing to do if the fit failed
@@ -2573,41 +2505,177 @@ class EventFitsSummary(strax.LoopPlugin):
                 checks[3] = widths[3] > 10**(p0-np.log10(areas[3]))*p1
         except:
             checks[3] = False
+    
         
-        
-        # we want all checks to be ok
-        if False in checks:
+        if True not in checks:
             return(r)
-        r["OK"] = True
         
             
+        if True in checks[:2]:
+            r["signals_exist"][0] = True
+        if True in checks[2:4]:
+            r["signals_exist"][1] = True
         
-        # store data
-        r["areas"][:4] = areas
-        r["areas"][4] = areas[0] + areas[1]
-        r["areas"][5] = areas[2] + areas[3]
+        if False not in r["signals_exist"]:
+            r["OK"] = True
         
-        r["widths"][:4] = widths
-        r["widths"][4] = widths[0] + widths[1]
-        r["widths"][5] = widths[2] + widths[3]
+        r["OK"] = True
+        if False not in checks[:2]:
+            # two S1s:
+            r["signals_split"][0] = True
+            r["areas"][:2] = areas[:2]
+            r["widths"][:2] = widths[:2]
+            r["areas"][6] = areas[0] + areas[1]
+            r["widths"][6] = widths[0]
+            r["areas_ratios"][0] = areas[0]/areas[1]
+            r["decaytime"] = event["decaytime_S1"]
+        elif True in checks[:2]:
+            # one S1:
+            id_S1 = np.array([0,1]) @ checks[:2]
+            r["id_signals"][0] = id_S1
+            r["areas"][4] = areas[id_S1]
+            r["widths"][4] = widths[id_S1]
+            r["areas"][6] = areas[id_S1]
+            r["widths"][6] = widths[id_S1]
+            
+            
+        # same for S2
+        if False not in checks[2:4]:
+            # two S2s:
+            r["signals_split"][1] = True
+            r["areas"][2:4] = areas[2:4]
+            r["widths"][2:4] = widths[2:4]
+            r["areas"][7] = areas[2] + areas[3]
+            r["widths"][7] = widths[2]
+            r["areas_ratios"][1] = areas[2]/areas[3]
+        elif True in checks[2:4]:
+            # one S2:
+            id_S2 = np.array([2,3]) @ checks[2:4]
+            r["id_signals"][1] = id_S2
+            r["areas"][5] = areas[id_S2]
+            r["widths"][5] = widths[id_S2]
+            r["areas"][7] = areas[id_S2]
+            r["widths"][7] = widths[id_S2]
         
-        r["decaytime"] = event["decaytime_S1"]
+        
+        
         
         # correct drifttime for potential different times of S1s
-        r["drifttime"] = event["drifttime"] + event["fit"][0] - event["fit_S1"][0]
-        
-        r["areas_ratios"][0] = areas[0]/areas[1]
-        r["areas_ratios"][1] = areas[2]/areas[3]
-        r["areas_ratios"][2] = r["areas"][4]/r["areas"][5]
+        r["drifttime"] = event["drifttime"] - (event["fit_S1"][0] - event["fit"][0])/1000
+        r["areas_ratios"][2] = r["areas"][6]/r["areas"][7]
         
         if (
-              (r["decaytime"] > self.config["decay_time_limit_OK"][0])
+            (r["decaytime"] > self.config["decay_time_limit_OK"][0])
             & (r["decaytime"] < self.config["decay_time_limit_OK"][1])
+            & (r["areas_ratios"][0] > self.config["s1_area_ratios_OK"][0])
             & (r["areas_ratios"][0] < self.config["s1_area_ratios_OK"][1])
-            & (r["areas_ratios"][0] < self.config["s1_area_ratios_OK"][1])
+            & (r["areas"][0] > self.config["min_areas"][0])
+            & (r["areas"][0] < self.config["max_areas"][0])
+            & (r["areas"][1] > self.config["min_areas"][1])
+            & (r["areas"][1] < self.config["max_areas"][1])
         ):
-            r["clean"] = True
+            r["clean_S1"] = True
         
+        r["clean"] = r["clean_S1"] & (False not in checks)
         return(r)
     
+
+@export
+class SPKryptonSummary(strax.LoopPlugin):
+    """
+    Summary plugin for sp_krypton and sp_krypton_s2_fits
+    
+    yields area/width fields analog to event_fits
+    indizes: 
+    'first S1', 'second S1', 'first S2', 'second S2',
+       'unsplit S2', 'total S1', 'total S2'
+    
+    """
+    __version__ = '0.0.0.4'
+    depends_on = ('sp_krypton', "sp_krypton_s2_fits",  'peaks')
+  
+    
+    def infer_dtype(self):
+        dtype = [
+            (('timestamp of the base event', 'time'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
+            
+            (("wheter the fit went OK", "OK"), np.bool_),
+            (("wheter the event is an event", "is_event"), np.bool_),
+            
+            (("decaytime of event", "decaytime"), np.float32),
+            (("drifttime of event", "drifttime"), np.float32),
+            
+            (("all signals areas", "areas"), np.float32, 8),
+            (("all signals widths", "widths"), np.float32, 8),
+            (("area ratios (S11/S12, S21/S22, S2/S1)", "areas_ratios"), np.float32, 3),
+            
+            
+            
+            
+            (("all corrected areas", "areas_corrected"), np.float32, 8),
+            (("xy position", "xy"), np.float32, 2),
+            (("z position", "z"), np.float32),
+            
+        ]
+
+        return dtype
+              
+    
+    def compute_loop(self, event, peaks):
+        r = {
+            "time": event["time"],
+            "endtime": event["endtime"],
+            "is_event": event["is_event"],
+            "OK": event["OK"],
+            "drifttime": event["time_drift"],
+            "decaytime": event["time_decay_s1"],
+            
+        }
+        
+        areas = [-1] * 8
+        widths = [-1] * 8
+        
+        
+        # 'first S1', 'second S1', 'first S2', 'second S2', 
+       # 'unsplit S2', 'total S1', 'total S2'
+        
+        # S1 stuff sp_krypton, lowercase s
+        areas[0] = event["area_s11"]
+        areas[1] = event["area_s12"]
+        widths[0] = event["width_s11"]
+        widths[1] = event["width_s12"]
+        widths[6] = event["width_s1"]
+        areas[6] = event["area_s1"]
+        
+        # s2 fits: capital S
+        if event["area_S22"] > 25:
+            # split S2
+            areas[2] = event["area_S21"]
+            areas[3] = event["area_S22"]
+            widths[2] = event["width_S21"]
+            widths[3] = event["width_S22"]
+        else:
+            # unsplit S2
+            areas[5] = event["area_S2"]
+            widths[5] = event["width_S2"]
+        
+        # total
+        areas[7] = event["area_S2"]
+        widths[7] = event["width_S2"]
+        
+        
+        r["areas"] = areas
+        r["widths"] = widths
+        
+        
+        
+        r["areas_ratios"] = [
+            r["areas"][0]/r["areas"][1],
+            r["areas"][2]/r["areas"][3],
+            r["areas"][6]/r["areas"][7],
+        ]
+        
+        return(r)
+
 

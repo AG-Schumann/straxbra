@@ -2403,6 +2403,8 @@ class EventFitsS1(strax.LoopPlugin):
     
     
     
+    strax.Option('drift_time_limit_OK', default=[0.2,np.inf],
+                 help='the allowed range for the drift time'),
     strax.Option('decay_time_limit_OK', default=[125,625],
                  help='the allowed range for the decay time'),
     strax.Option('s1_area_ratios_OK', default=[1.5,7],
@@ -2411,7 +2413,7 @@ class EventFitsS1(strax.LoopPlugin):
 )
 @export
 class EventFitsSummary(strax.LoopPlugin):
-    __version__ = '0.0.0.48'
+    __version__ = '0.0.0.49'
     depends_on = ('events', 'event_fits', 'event_fits_s1')
     
     
@@ -2565,8 +2567,10 @@ class EventFitsSummary(strax.LoopPlugin):
         r["areas_ratios"][2] = r["areas"][6]/r["areas"][7]
         
         if (
-            (r["decaytime"] > self.config["decay_time_limit_OK"][0])
+              (r["decaytime"] > self.config["decay_time_limit_OK"][0])
             & (r["decaytime"] < self.config["decay_time_limit_OK"][1])
+            & (r["drifttime"] > self.config["drift_time_limit_OK"][0])
+            & (r["drifttime"] < self.config["drift_time_limit_OK"][1])
             & (r["areas_ratios"][0] > self.config["s1_area_ratios_OK"][0])
             & (r["areas_ratios"][0] < self.config["s1_area_ratios_OK"][1])
             & (r["areas"][0] > self.config["min_areas"][0])

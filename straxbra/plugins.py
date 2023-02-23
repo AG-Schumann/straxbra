@@ -2413,7 +2413,7 @@ class EventFitsS1(strax.LoopPlugin):
 )
 @export
 class EventFitsSummary(strax.LoopPlugin):
-    __version__ = '0.0.0.49'
+    __version__ = '0.0.0.50'
     depends_on = ('events', 'event_fits', 'event_fits_s1')
     
     
@@ -2430,6 +2430,7 @@ class EventFitsSummary(strax.LoopPlugin):
             
             (("decay time", "decaytime"), np.float32),
             (("drift time", "drifttime"), np.float32),
+            (("corrected drift time", "drifttime_corrected"), np.float32),
             
             (("signal widths", "widths"), np.float32, 8),
             (("signal areas", "areas"), np.float32, 8),
@@ -2595,7 +2596,7 @@ class SPKryptonSummary(strax.LoopPlugin):
        'unsplit S2', 'total S1', 'total S2'
     
     """
-    __version__ = '0.0.0.4'
+    __version__ = '0.0.0.5'
     depends_on = ('sp_krypton', "sp_krypton_s2_fits",  'peaks')
   
     
@@ -2609,6 +2610,7 @@ class SPKryptonSummary(strax.LoopPlugin):
             
             (("decaytime of event", "decaytime"), np.float32),
             (("drifttime of event", "drifttime"), np.float32),
+            (("corrected drift time", "drifttime_corrected"), np.float32),
             
             (("all signals areas", "areas"), np.float32, 8),
             (("all signals widths", "widths"), np.float32, 8),

@@ -1460,7 +1460,7 @@ class SPKryptonS2Fits(strax.LoopPlugin):
     """
     fits gaussions on S2s 
     """
-    __version__ = '0.0.0.33'
+    __version__ = '0.0.0.37'
     depends_on = ('sp_krypton', 'peaks')
   
     
@@ -1475,7 +1475,7 @@ class SPKryptonS2Fits(strax.LoopPlugin):
             (("second S2s area",   "area_S22"), np.float32),
             (("second S2s width", "width_S22"), np.float32),
             (("wheter the event is an event", "is_event"), np.bool_),
-            (("wheter the fit went OK", "OK"), np.bool_),
+            (("wheter the fit was OK", "OK"), np.bool_),
             (('timestamp of the base event', 'time'), np.int64),
             (('end timestamp of the base event', 'endtime'), np.int64),
         ]
@@ -1525,6 +1525,8 @@ class SPKryptonS2Fits(strax.LoopPlugin):
             
             r["fit"] =  fit
             r["sfit"] =  sfit
+            
+            
             
             r["OK"]  = True
         except Exception as e:
@@ -2596,7 +2598,7 @@ class SPKryptonSummary(strax.LoopPlugin):
        'unsplit S2', 'total S1', 'total S2'
     
     """
-    __version__ = '0.0.0.5'
+    __version__ = '0.0.0.8'
     depends_on = ('sp_krypton', "sp_krypton_s2_fits",  'peaks')
   
     
@@ -2614,6 +2616,11 @@ class SPKryptonSummary(strax.LoopPlugin):
             
             (("all signals areas", "areas"), np.float32, 8),
             (("all signals widths", "widths"), np.float32, 8),
+            
+            (("fit result", "fit"), np.float32, 5),
+            (("fit uncertainties", "sfit"), np.float32, 5),
+            
+            
             (("area ratios (S11/S12, S21/S22, S2/S1)", "areas_ratios"), np.float32, 3),
             
             
@@ -2633,13 +2640,14 @@ class SPKryptonSummary(strax.LoopPlugin):
             "time": event["time"],
             "endtime": event["endtime"],
             "is_event": event["is_event"],
-            "OK": event["OK"],
+            "OK": -1,
             "drifttime": event["time_drift"],
             "decaytime": event["time_decay_s1"],
-            
+            "fit": event["fit"],
+            "sfit": event["sfit"],
         }
         
-        areas = [-1] * 8
+        areas = np.array([-1] * 8)
         widths = [-1] * 8
         
         
@@ -2674,6 +2682,7 @@ class SPKryptonSummary(strax.LoopPlugin):
         r["areas"] = areas
         r["widths"] = widths
         
+        r["OK"] = event["OK"] & event["is_event"] & np.all(areas[0:4] > 0)
         
         
         r["areas_ratios"] = [

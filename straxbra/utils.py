@@ -13,8 +13,11 @@ n_pmts = 8
 drift_length = 7  # in cm
 MAX_RUN_ID = 999999  # because reasons
 
+
+
+
 def _GetRundoc(run_id):
-    query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment' : experiment}
+    query = {'run_id' : min(int(run_id), MAX_RUN_ID), 'experiment': experiment}
     doc = db['runs'].find_one(query)
     #if doc is None:
     #    raise ValueError('No run with id %d' % run_id)
@@ -44,13 +47,22 @@ def GetGains(run_id):
 
     if doc is None:
         return np.ones(n_pmts)
+    
     run_start = datetime.datetime.timestamp(doc['start'])
+    
+    # we really have to specify the experiment, otherwise there will be wrong 
     try:
-        earlier_doc = list(db['pmt_gains'].find({'time' : {'$lte' : run_start}}).sort([('time', -1)]).limit(1))[0]
+        earlier_doc = list(db['pmt_gains'].find({
+            'experiment': experiment,
+            'time' : {'$lte' : run_start}
+        }).sort([('time', -1)]).limit(1))[0]
     except IndexError:
         return np.ones(n_pmts)
     try:
-        later_doc = list(db['pmt_gains'].find({'time' : {'$gte' : run_start}}).sort([('time', 1)]).limit(1))[0]
+        later_doc = list(db['pmt_gains'].find({
+            'experiment': experiment,
+            'time' : {'$gte' : run_start}
+        }).sort([('time', 1)]).limit(1))[0]
     except IndexError:
         return np.array(earlier_doc['adc_to_pe'])
     #earlier_cal = int(str(earlier_doc['_id'])[:8], 16)

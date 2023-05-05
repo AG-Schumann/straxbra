@@ -131,6 +131,8 @@ class DAQReader(strax.ParallelSourcePlugin):
         return records
 
 
+
+
 @export
 @strax.takes_config(
         strax.Option('to_pe', track=False,
@@ -144,12 +146,15 @@ class DAQReader(strax.ParallelSourcePlugin):
                      help='Cut up to this to many samples before a hit'),
         strax.Option('right_cut_extension', default=15,
                      help='Cut past this many samples after a hit'),
+        strax.Option('channels_to_ignore', default=None,
+                     help='which channels you want to ignore'),
+
 )
 class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.2'
+    __version__ = '0.0.4.2'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -161,10 +166,17 @@ class Records(strax.Plugin):
     def compute(self, raw_records):
         # Remove records from channels for which the gain is unknown
         # or low
+        
+        print(self.config['to_pe'])
+        
         channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
         r = raw_records
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]
+        
+        if isinstance(self.config['channels_to_ignore'], list):
+            for ch in self.config['channels_to_ignore']:
+                r = r[r['channel'] != ch]
 
         strax.zero_out_of_bounds(r)
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
@@ -186,6 +198,8 @@ class Records(strax.Plugin):
                      help='Extend peaks by this many ns to the right'),
         strax.Option('peak_min_chan', type=int, default=1,
                      help='Mininmum number of channels to form a peak'),
+       
+        
         strax.Option('peak_min_area', default=2,
                      help='Minimum area to form a peak'),
         strax.Option('peak_max_duration', default=50e3,

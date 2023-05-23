@@ -50,17 +50,19 @@ def GetGains(run_id):
     
     run_start = datetime.datetime.timestamp(doc['start'])
     
-    # we really have to specify the experiment, otherwise there will be wrong 
+    print(f"obtaining gains for run {run_id} ({experiment}): start of run: {doc['start']} ")
+    
+    
     try:
         earlier_doc = list(db['pmt_gains'].find({
-            'experiment': experiment,
+            # 'experiment': experiment,
             'time' : {'$lte' : run_start}
         }).sort([('time', -1)]).limit(1))[0]
     except IndexError:
         return np.ones(n_pmts)
     try:
         later_doc = list(db['pmt_gains'].find({
-            'experiment': experiment,
+            # 'experiment': experiment,
             'time' : {'$gte' : run_start}
         }).sort([('time', 1)]).limit(1))[0]
     except IndexError:

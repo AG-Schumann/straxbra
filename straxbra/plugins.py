@@ -286,7 +286,7 @@ class PeakBasics(strax.Plugin):
     Stolen from straxen, extended with risetime. Also replaces
     aft for nonphysical peaks with nan.
     """
-    __version__ = "0.0.2B"
+    __version__ = "0.0.3"
     parallel = True
     depends_on = ('peaks',)
     dtype = [
@@ -306,6 +306,8 @@ class PeakBasics(strax.Plugin):
             'range_50p_area'), np.float32),
         (('Risetime (in ns) of the peak',
             'risetime'), np.float32),
+        (('falltime (in ns) of the peak',
+            'falltime'), np.float32),
         (('Time (in ns) to midpoint',
             'time_to_midpoint'), np.float32),
         (('Fraction of area seen by the top array',
@@ -325,6 +327,7 @@ class PeakBasics(strax.Plugin):
         r['n_channels'] = (p['area_per_channel'] > 0).sum(axis=1)
         r['range_50p_area'] = p['width'][:, 5]
         r['risetime'] = -p['area_decile_from_midpoint'][:,1]
+        r['falltime'] = p['area_decile_from_midpoint'][:,9]
         
         # old buggy version commented out
         # r['time_to_midpoint'] = -p['area_decile_from_midpoint'][:,0]
@@ -1549,6 +1552,47 @@ class SPKryptonS2Fits(strax.LoopPlugin):
         return(r)
 
 
+
+
+
+# Other settigns are already defined for EventsSinglePhaseKryptonBasics
+@export
+class SPKryptonPeaks(strax.Plugin):
+    """
+    peaks that are S1 or S2 of sp_krypton
+    """
+    __version__ = '0.0.0.4'
+    depends_on = ('peaks', "sp_krypton")
+    parallel = True
+    
+    
+    def infer_dtype(self):
+        dtype_peaks =  strax.peak_dtype(n_channels=8)
+        dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
+        dtype_peaks.append((("signal type (0: first S1)", "field_id"), '<i2'))
+        
+        return(dtype_peaks)
+    
+    
+    def compute(self, peaks, events):
+        ps = peaks[np.in1d(peaks["time"], events["time_signals"].reshape(-1))]
+        ps2 = np.zeros(len(ps), dtype=self.dtype)        
+        
+        for field_name in ps.dtype.names:
+            ps2[field_name] = ps[field_name]
+        
+        
+        for field_id in range(4):
+            ps2["field_id"][np.in1d(ps["time"], events["time_signals"][:, field_id])] = field_id
+
+        
+        return(ps2)
+    
+
+
+
+
+
 # Other settigns are already defined for EventsSinglePhaseKryptonBasics
 @export
 class LargestPeaksPerEvent(strax.LoopPlugin):
@@ -1617,6 +1661,7 @@ class PeaksLarge(strax.Plugin):
     def infer_dtype(self):
         dtype_peaks =  strax.peak_dtype(n_channels=8)
         dtype_peaks.append((("time to midpoint (50% quantile)", "time_to_midpoint"), '<i2'))
+        dtype_peaks.append((("time to midpoint (50% quantile)", "time_event"), '<i2'))
     
         return(dtype_peaks)
     

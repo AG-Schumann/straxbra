@@ -13,7 +13,8 @@ n_pmts = 8
 drift_length = 7  # in cm
 MAX_RUN_ID = 999999  # because reasons
 
-
+# set this to true to print info on gains
+show_gains_used = False
 
 
 def _GetRundoc(run_id):
@@ -50,7 +51,8 @@ def GetGains(run_id):
     
     run_start = datetime.datetime.timestamp(doc['start'])
     
-    print(f"obtaining gains for run {run_id} ({experiment}): start of run: {doc['start']} ")
+    if show_gains_used is True:
+        print(f"obtaining gains for run {run_id} ({doc['experiment']}): start of run: {doc['start']} ")
     
     
     try:

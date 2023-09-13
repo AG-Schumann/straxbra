@@ -11,7 +11,7 @@ import os.path as osp
 import logging
 import logging.handlers
 import re
-from blosc import decompress
+from lz4.frame import decompress
 import numpy as np
 from strax import record_dtype
 import shutil
@@ -194,10 +194,12 @@ class Dispatcher(object):
                 rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[0]
                 run_start = rec['time']
             # cleanup unnecessary folders
+            self.logger.debug('cleanup unnecessary folders')
             for fn in os.listdir(self.raw_dir):
                 if 'temp' in fn:
                     shutil.rmtree(osp.join(self.raw_dir, fn))
             chunks = sorted(os.listdir(self.raw_dir))
+            self.logger.debug(f'chunks: {len(chunks)}')
             for chunk in chunks[::-1]:
                 if len(os.listdir(osp.join(self.raw_dir, chunk))) < threads:
                     continue  # incomplete folder
@@ -207,7 +209,8 @@ class Dispatcher(object):
                         rec = np.frombuffer(decompress(f.read()), dtype=record_dtype())[-1]
                         duration = rec['time'] - run_start
                         updates['end'] = doc['start'] + datetime.timedelta(seconds=duration/1e9)
-                except Exception:
+                except Exception as e:
+                    self.logger.debug(f'error cleaning up: {e}')
                     continue  # mark for removal?
                 break
         else:
@@ -229,10 +232,15 @@ class Dispatcher(object):
 
         self.logger.debug('waiting for straxinator to be ready')
 
-        f = open(self.raw_dir + "/DAQSPATCHER_OK", "x")
-        f.write("OK")
-        f.close
-
+#        f = open(self.raw_dir + "/DAQSPATCHER_OK", "x")
+#        f.write("OK")
+#        f.close
+        try:
+            with open(self.raw_dir + "/DAQSPATCHER_OK", "x") as f:
+                f.write("OK")
+                self.logger.debug(f'created file DAQSPATCHER')
+        except Exception as e:
+            self.logger.debug(f'error when creating file DAQSPATCHER_OK: {e}')
         self.SetStatus(msg='waiting for straxinator to finish')
         int_straxinator_counter = 0
         while True:

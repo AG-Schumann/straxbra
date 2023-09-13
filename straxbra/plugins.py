@@ -85,7 +85,7 @@ class DAQReader(strax.ParallelSourcePlugin):
 
     def load_chunk(self, folder, kind='central'):
         records = np.concatenate([strax.load_file(os.path.join(folder,f),
-                                                  compressor='blosc',
+                                                  compressor='lz4',
                                                   dtype=strax.record_dtype())
                                   for f in os.listdir(folder)])
         records = strax.sort_by_time(records)

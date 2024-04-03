@@ -2756,17 +2756,6 @@ class SPKryptonSummary(strax.LoopPlugin):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 # andres single electron afterpulses
 @export
 @strax.takes_config(
@@ -2803,7 +2792,11 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
 
     def compute_loop(self, event, peaks):
         
-        result = {}
+        result = {
+            "time": event["time"],
+            "endtime": event["endtime"],
+        }
+        
         result["time"] = event["time"]
         result["endtime"] = event["endtime"]
         

@@ -2753,3 +2753,79 @@ class SPKryptonSummary(strax.LoopPlugin):
         return(r)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# andres single electron afterpulses
+@export
+@strax.takes_config(
+    # strax.Option('sp_krypton_s1_area_min', default=25,
+                 # help='minimum area for a peak to potentially be a S1'),
+    # strax.Option('sp_krypton_s1_area_max', default=400,
+                 # help='maximum area for a peak to potentially be a S1'),
+    # strax.Option('sp_krypton_s1s_dt_max', default=1500,
+                 # help='maximum time difference beetween 2 peaks'
+                      # 'to be considered two S1s'),
+    # strax.Option('sp_krypton_dt_s1s_s2s_max', default=50,
+                 # help='how much the S2s are allowed to be further aparth than the S1s'
+                      # 'to be considered two S1s'),
+    # strax.Option('sp_krypton_min_drifttime_ns', default=0,
+                 # help='Minimum Drifttime (ns)'),
+                 # help='Maximum drifttime (ns)'),
+    # strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
+)
+
+
+
+@export
+class SpKryptonSingleElectrons(strax.LoopPlugin):
+    """
+    
+    New and improved version for single phase Krypton data
+    optimiced for aggressive cutting: min_height = 0
+    
+    """
+    __version__ = '0.0.0.0'
+    depends_on = ('events', 'peaks', 'peak_basics')
+  
+  
+  
+    def infer_dtype(self):
+        dtype = [
+
+                (('timestamp of the base event',
+                   'time'), np.int64),
+                (('endtimestamp of the base event',
+                   'endtime'), np.int64),                
+
+
+                ]
+
+        return dtype
+
+
+
+
+    def compute_loop(self, event, peaks):
+        
+        result = {}
+        result["time"] = event["time"]
+        result["endtime"] = event["endtime"]
+        
+        
+        
+        
+        
+        return(result)
+

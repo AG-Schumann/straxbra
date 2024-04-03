@@ -2790,11 +2790,11 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     def infer_dtype(self):
         dtype = [
 
-                (('timestamp of the base event',
-                   'time'), np.int64),
-                (('endtimestamp of the base event',
-                   'endtime'), np.int64),                
-                ]
+            (('timestamp of the base event',
+               'time'), np.int64),
+            (('endtimestamp of the base event',
+               'endtime'), np.int64),                
+        ]
 
         return dtype
 

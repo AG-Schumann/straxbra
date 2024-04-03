@@ -2771,38 +2771,131 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.0.0'
-    depends_on = ('events', 'peaks', 'peak_basics')
+    # __version__ = '0.0.0.0'
+    # depends_on = ('events', 'peaks', 'peak_basics')
   
   
   
+    # def infer_dtype(self):
+        # dtype = [
+            # (('timestamp of the base event',
+               # 'time'), np.int64),
+            # (('endtimestamp of the base event',
+               # 'endtime'), np.int64),                
+        # ]
+
+        # return dtype
+
+
+
+
+    # def compute_loop(self, event, peaks):
+        
+        # result = {
+            # "time": event["time"],
+            # "endtime": event["endtime"],
+        # }
+        
+        # result["time"] = event["time"]
+        # result["endtime"] = event["endtime"]
+        
+        
+        
+        
+        
+        # return(result)
+
+    __version__ = '0.0.0.8'
+    depends_on = ('sp_krypton', "sp_krypton_s2_fits",  'peaks')
+  
+    
     def infer_dtype(self):
         dtype = [
-
-            (('timestamp of the base event',
-               'time'), np.int64),
-            (('endtimestamp of the base event',
-               'endtime'), np.int64),                
+            (('timestamp of the base event', 'time'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
+            
+            (("wheter the fit went OK", "OK"), np.bool_),
+            (("wheter the event is an event", "is_event"), np.bool_),
+            
+            (("decaytime of event", "decaytime"), np.float32),
+            (("drifttime of event", "drifttime"), np.float32),
+            (("corrected drift time", "drifttime_corrected"), np.float32),
+            
+            (("all signals areas", "areas"), np.float32, 8),
+            (("all signals widths", "widths"), np.float32, 8),
+            
+            (("fit result", "fit"), np.float32, 5),
+            (("fit uncertainties", "sfit"), np.float32, 5),
+            
+            
+            (("area ratios (S11/S12, S21/S22, S2/S1)", "areas_ratios"), np.float32, 3),
+            
+            
+            
+            
+            (("all corrected areas", "areas_corrected"), np.float32, 8),
+            (("xy position", "xy"), np.float32, 2),
+            (("z position", "z"), np.float32),
+            
         ]
 
         return dtype
-
-
-
-
+              
+    
     def compute_loop(self, event, peaks):
-        
-        result = {
+        r = {
             "time": event["time"],
             "endtime": event["endtime"],
+            "is_event": event["is_event"],
+            "OK": -1,
+            "drifttime": event["time_drift"],
+            "decaytime": event["time_decay_s1"],
+            "fit": event["fit"],
+            "sfit": event["sfit"],
         }
         
-        result["time"] = event["time"]
-        result["endtime"] = event["endtime"]
+        areas = np.array([-1] * 8)
+        widths = [-1] * 8
         
         
+        # 'first S1', 'second S1', 'first S2', 'second S2', 
+       # 'unsplit S2', 'total S1', 'total S2'
+        
+        # S1 stuff sp_krypton, lowercase s
+        areas[0] = event["area_s11"]
+        areas[1] = event["area_s12"]
+        widths[0] = event["width_s11"]
+        widths[1] = event["width_s12"]
+        widths[6] = event["width_s1"]
+        areas[6] = event["area_s1"]
+        
+        # s2 fits: capital S
+        if event["area_S22"] > 25:
+            # split S2
+            areas[2] = event["area_S21"]
+            areas[3] = event["area_S22"]
+            widths[2] = event["width_S21"]
+            widths[3] = event["width_S22"]
+        else:
+            # unsplit S2
+            areas[5] = event["area_S2"]
+            widths[5] = event["width_S2"]
+        
+        # total
+        areas[7] = event["area_S2"]
+        widths[7] = event["width_S2"]
         
         
+        r["areas"] = areas
+        r["widths"] = widths
         
-        return(result)
-
+        r["OK"] = event["OK"] & event["is_event"] & np.all(areas[0:4] > 0)
+        
+        
+        r["areas_ratios"] = [
+            r["areas"][0]/r["areas"][1],
+            r["areas"][2]/r["areas"][3],
+            r["areas"][6]/r["areas"][7],
+        ]
+        
+        return(r)

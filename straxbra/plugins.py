@@ -2774,7 +2774,6 @@ class SPKryptonSummary(strax.LoopPlugin):
                  help='minimum and maximum size for a signal to be a single electron'),
 )
 
-
 @export
 class SpKryptonSingleElectrons(strax.LoopPlugin):
     """

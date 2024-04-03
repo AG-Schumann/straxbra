@@ -2771,24 +2771,7 @@ class SPKryptonSummary(strax.LoopPlugin):
 @export
 @strax.takes_config(
     strax.Option('sp_krypton_single_elctron_size_range', default=(0.5, 2),
-                 help='minimum and maximum isze for a signal to be a single electron'),
-    
-    
-    # strax.Option('sp_krypton_s1_area_min', default=25,
-                 # help='minimum area for a peak to potentially be a S1'),
-    # strax.Option('sp_krypton_s1_area_max', default=400,
-                 # help='maximum area for a peak to potentially be a S1'),
-    # strax.Option('sp_krypton_s1s_dt_max', default=1500,
-                 # help='maximum time difference beetween 2 peaks'
-                      # 'to be considered two S1s'),
-    # strax.Option('sp_krypton_dt_s1s_s2s_max', default=50,
-                 # help='how much the S2s are allowed to be further aparth than the S1s'
-                      # 'to be considered two S1s'),
-    # strax.Option('sp_krypton_min_drifttime_ns', default=0,
-                 # help='Minimum Drifttime (ns)'),
-                 # help='Maximum drifttime (ns)'),
-    # strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
-
+                 help='minimum and maximum size for a signal to be a single electron'),
 )
 
 
@@ -2812,8 +2795,6 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
                    'time'), np.int64),
                 (('endtimestamp of the base event',
                    'endtime'), np.int64),                
-
-
                 ]
 
         return dtype

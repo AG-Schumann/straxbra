@@ -2770,6 +2770,10 @@ class SPKryptonSummary(strax.LoopPlugin):
 # andres single electron afterpulses
 @export
 @strax.takes_config(
+    strax.Option('sp_krypton_single_elctron_size_range', default=(0.5, 2),
+                 # help='minimum and maximum isze for a signal to be a single electron'),
+    
+    
     # strax.Option('sp_krypton_s1_area_min', default=25,
                  # help='minimum area for a peak to potentially be a S1'),
     # strax.Option('sp_krypton_s1_area_max', default=400,
@@ -2784,8 +2788,8 @@ class SPKryptonSummary(strax.LoopPlugin):
                  # help='Minimum Drifttime (ns)'),
                  # help='Maximum drifttime (ns)'),
     # strax.Option('sp_krypton_max_drifttime_ns', default=500_000,
-)
 
+)
 
 
 @export

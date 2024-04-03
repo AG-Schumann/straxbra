@@ -2771,7 +2771,7 @@ class SPKryptonSummary(strax.LoopPlugin):
 @export
 @strax.takes_config(
     strax.Option('sp_krypton_single_elctron_size_range', default=(0.5, 2),
-                 # help='minimum and maximum isze for a signal to be a single electron'),
+                 help='minimum and maximum isze for a signal to be a single electron'),
     
     
     # strax.Option('sp_krypton_s1_area_min', default=25,

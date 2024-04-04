@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.9'
+    __version__ = '0.0.0.8'
     depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2780,7 +2780,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('timestamp of the base event', 'time'), np.int64),
             (('end timestamp of the base event', 'endtime'), np.int64),
             
-            (("wheter the event is an krypton event", "is_kryptonevent"), np.bool_),
+            (("wheter the event is a krypton event", "is_kryptonevent"), np.bool_),
+            (('number of peaks after last S2 if the event is a krypton event', 'n_peaks_after'), np.int32),
         ]
 
         return dtype
@@ -2797,5 +2798,14 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         }
         
         result["is_kryptonevent"] = event["is_event"]
+        
+        if event["is_event"]==True:
+          
+            afterpeaks = ((peaks["time"] >= event["time"]) & (peaks["time"] <= event["endtime"]))
+    
+            result["n_peaks_after"] = len(afterpeaks)
+        
+        else:
+            result["n_peaks_after"] = 0
 
         return(result)

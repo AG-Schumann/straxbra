@@ -2766,11 +2766,11 @@ class SPKryptonSummary(strax.LoopPlugin):
 @export
 class SpKryptonSingleElectrons(strax.LoopPlugin):
     """
-    New and improved version for single phase Krypton data
-    optimiced for aggressive cutting: min_height = 0
+    New version for single phase Krypton data
+    to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.4'
+    __version__ = '0.0.0.5'
     depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2782,7 +2782,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('endtimestamp of the base event',
                'endtime'), np.int64),  
             
-            (("wheter the event is an event",
+            (("wheter the event is an krypton event",
                 "is_kryptonevent"), np.bool_),
         ]
 
@@ -2798,9 +2798,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             "endtime": event["endtime"],
             "is_kryptonevent": event["is_event"],
         }
-        result["time"] = event["time"]
-        result["endtime"] = event["endtime"]    
-        result["is_kryptonevent"] = event["is_event"]
+        # result["time"] = event["time"]
+        # result["endtime"] = event["endtime"]    
+        # result["is_kryptonevent"] = event["is_event"]
         
        
         

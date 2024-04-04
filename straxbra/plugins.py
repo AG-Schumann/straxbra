@@ -2770,8 +2770,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.19'
-    depends_on = ('events', 'peaks', peak_basics, 'sp_krypton', 'sp_krypton_summary')
+    __version__ = '0.0.0.20'
+    depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
   

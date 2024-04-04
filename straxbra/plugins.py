@@ -2782,7 +2782,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('endtimestamp of the base event',
                'endtime'), np.int64),  
             
-            (("wheter the event is an event", "is_event"), np.bool_),
+            (("wheter the event is an event",
+                "is_event"), np.bool_),
         ]
 
         return dtype
@@ -2797,13 +2798,11 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             "endtime": event["endtime"],
             "is_event": event["is_event"],
         }
-       # result["is_event"] = event["is_event"]==True:
-            # result["time"] = event["time"]
-            # result["endtime"] = event["endtime"]    
-        # else:
-            # pass
+        result["is_event"] = event["is_event"]
+        result["time"] = event["time"]
+        result["endtime"] = event["endtime"]    
+
         
-        
-        
+       
         
         return(result)

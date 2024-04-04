@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.17'
+    __version__ = '0.0.0.18'
     depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2786,6 +2786,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('number of peaks before the first S2 if the event is a krypton event', 'n_peaks_before'), np.int32),
             (('number of peaks per ns after last S2 if the event is a krypton event', 'npt_peaks_after'), np.float64),
             (('number of peaks per ns before the first S2 if the event is a krypton event', 'npt_peaks_before'), np.float64),
+            
+            (("Dividing by zero", "divide_zero"), np.bool_),
         ]
 
         return dtype
@@ -2833,6 +2835,12 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             time_after = event["endtime"] - (last_s2 + event["width_s2"])
             time_before = first_s2 - (last_s1 + event["width_s1"])   ####becomes zero in some events
             
+            if time_before == 0:
+                result["divide_zero"] = True
+            
+            else:
+                result["divide_zero"] = False
+            
             result["npt_peaks_after"] = len(afterpeaks)/time_after
             result["npt_peaks_before"] = len(beforepeaks)/time_before
         
@@ -2843,5 +2851,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             result["npt_peaks_after"] = 0
             result["npt_peaks_before"] = 0
+            
+            result["divide_zero"] = False
 
         return(result)

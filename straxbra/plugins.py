@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.16'
+    __version__ = '0.0.0.17'
     depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2807,7 +2807,13 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
           
            #find the last/first S2 signal, latest/earliest of S21 and S22
             last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
-            first_s2 = np.minimum( event["time_signals"][2], event["time_signals"][3])
+            
+            #choosing the right s2, if there is only one
+            if event["time_signals"][2] == -1 or event["time_signals"][3] == -1:
+                first_s2 = last_s2
+            
+            else:
+                first_s2 = np.minimum( event["time_signals"][2], event["time_signals"][3])
             
             #find the last S1 signal, latest of S11 and S11
             last_s1 = np.maximum( event["time_signals"][0], event["time_signals"][1])
@@ -2825,7 +2831,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             #peaks per time
             time_after = event["endtime"] - (last_s2 + event["width_s2"])
-            time_before = first_s2 - (last_s1 + event["width_s1"])
+            time_before = first_s2 - (last_s1 + event["width_s1"])   ####becomes zero in some events
             
             result["npt_peaks_after"] = len(afterpeaks)/time_after
             result["npt_peaks_before"] = len(beforepeaks)/time_before

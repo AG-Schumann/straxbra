@@ -2770,8 +2770,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.0.1'
-    depends_on = ('events', 'peaks', 'peak_basics')
+    __version__ = '0.0.0.2'
+    depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   
   
@@ -2780,7 +2780,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('timestamp of the base event',
                'time'), np.int64),
             (('endtimestamp of the base event',
-               'endtime'), np.int64),                
+               'endtime'), np.int64),  
+            
+            (("wheter the event is an event", "is_event"), np.bool_),
         ]
 
         return dtype
@@ -2793,11 +2795,13 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         result = {
             "time": event["time"],
             "endtime": event["endtime"],
+            "is_event": event["is_event"],
         }
-        
-        result["time"] = event["time"]
-        result["endtime"] = event["endtime"]
-        
+       # result["is_event"] = event["is_event"]==True:
+            # result["time"] = event["time"]
+            # result["endtime"] = event["endtime"]    
+        # else:
+            # pass
         
         
         

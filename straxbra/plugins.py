@@ -2770,8 +2770,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.18'
-    depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
+    __version__ = '0.0.0.19'
+    depends_on = ('events', 'peaks', peak_basics, 'sp_krypton', 'sp_krypton_summary')
   
   
   
@@ -2788,6 +2788,12 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('number of peaks per ns before the first S2 if the event is a krypton event', 'npt_peaks_before'), np.float64),
             
             (("Dividing by zero", "divide_zero"), np.bool_),
+            
+            (('sum of peak integrals in PE after last S2 if the event is a krypton event', 'area_after'), np.float64),
+            (('sum of peak integrals in PE before the first S2 if the event is a krypton event', 'area_before'), np.float64),
+            (('sum of peak integrals in PE per ns after last S2 if the event is a krypton event', 'area_pt_after'), np.float64),
+            (('sum of peak integrals in PE per ns before the first S2 if the event is a krypton event', 'area_pt_before'), np.float64),
+            
         ]
 
         return dtype
@@ -2841,8 +2847,21 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             else:
                 result["divide_zero"] = False
             
-            result["npt_peaks_after"] = len(afterpeaks)/time_after
-            result["npt_peaks_before"] = len(beforepeaks)/time_before
+            result["npt_peaks_after"] = len(afterpeaks) / time_after
+            result["npt_peaks_before"] = len(beforepeaks) / time_before
+            
+            
+            #calculating sums of peak integrals
+            area_before = sum(beforepeaks[area])
+            area_after = sum(afterpeaks[area])
+            
+            result["area_before"] = area_before
+            result["area_after"] = area_after
+            
+            #...and per time
+            result["area_pt_before"] = area_before / time_before
+            result["area_pt_after"] = area_after / time_after
+        
         
         else:
             result["n_peaks_after"] = 0
@@ -2853,5 +2872,11 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["npt_peaks_before"] = 0
             
             result["divide_zero"] = False
+            
+            result["area_before"] = 0
+            result["area_after"] = 0
+            
+            result["area_pt_before"] = 0
+            result["area_pt_after"] = 0
 
         return(result)

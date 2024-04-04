@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     optimiced for aggressive cutting: min_height = 0
     
     """
-    __version__ = '0.0.0.2'
+    __version__ = '0.0.0.3'
     depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   

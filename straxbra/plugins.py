@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.7'
+    __version__ = '0.0.0.9'
     depends_on = ('events', 'peaks', 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2778,9 +2778,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     def infer_dtype(self):
         dtype = [
             (('timestamp of the base event', 'time'), np.int64),
-            #(('end timestamp of the base event', 'endtime'), np.int64),
+            (('end timestamp of the base event', 'endtime'), np.int64),
             
-            (("wheter the event is an event", "is_event"), np.bool_),
+            (("wheter the event is an krypton event", "is_kryptonevent"), np.bool_),
         ]
 
         return dtype
@@ -2792,10 +2792,10 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         
         result = {
             "time": event["time"],
-           # "endtime": event["endtime"],
-            "is_event": event["is_event"],
+            "endtime": event["endtime"],
+         
         }
         
-    
+        result["is_kryptonevent"] = event["is_event"]
 
         return(result)

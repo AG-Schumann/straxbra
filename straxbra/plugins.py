@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.20'
+    __version__ = '0.0.0.21'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2852,8 +2852,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             
             #calculating sums of peak integrals
-            area_before = sum(beforepeaks[area])
-            area_after = sum(afterpeaks[area])
+            area_before = sum(beforepeaks["area"])
+            area_after = sum(afterpeaks["area"])
             
             result["area_before"] = area_before
             result["area_after"] = area_after

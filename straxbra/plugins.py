@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.21'
+    __version__ = '0.0.0.22'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2805,18 +2805,18 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         
         result = {
             "time": event["time"],
-            "endtime": event["endtime"],
-         
+            "endtime": event["endtime"], 
         }
         
         result["is_kryptonevent"] = event["is_event"]
         
+        #filtering krypton events
         if event["is_event"]==True:
           
-           #find the last/first S2 signal, latest/earliest of S21 and S22
+            #find the last S2 signal, latest of S21 and S22
             last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
             
-            #choosing the right s2, if there is only one
+            #choosing the right first s2, if there is only one
             if event["time_signals"][2] == -1 or event["time_signals"][3] == -1:
                 first_s2 = last_s2
             
@@ -2828,7 +2828,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             result["last_s2"] = last_s2
             
-           #find the peaks between the last S2 signal and the endtime of the krypton event and the peaks betweenstart of the krypton event and the first S2 signal
+            #find the peaks between the last S2 signal and the endtime of the krypton event and the peaks betweenstart of the krypton event and the first S2 signal
             afterpeaks = peaks[((peaks["time"] >= (last_s2 + event["width_s2"])) & (peaks["time"] <= event["endtime"]))]
             #beforepeaks = peaks[((peaks["time"] >= event["time"]) & (peaks["time"] <= first_s2))]
                 #with this method there are events with 0 beforepeaks - why aren't there any S1 signals??
@@ -2839,8 +2839,10 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             #peaks per time
             time_after = event["endtime"] - (last_s2 + event["width_s2"])
-            time_before = first_s2 - (last_s1 + event["width_s1"])   ####becomes zero in some events
+            time_before = first_s2 - (last_s1 + event["width_s1"])   
             
+            ####becomes zero in some events
+            #marking those events to take the division by zero in account
             if time_before == 0:
                 result["divide_zero"] = True
             
@@ -2863,6 +2865,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["area_pt_after"] = area_after / time_after
         
         
+        #retrun zeros for non krypton events
         else:
             result["n_peaks_after"] = 0
             result["n_peaks_before"] = 0

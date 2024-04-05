@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.24'
+    __version__ = '0.0.0.25'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2808,10 +2808,10 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             "endtime": event["endtime"], 
         }
         
-        result["is_kryptonevent"] = event["is_event"]
-        
+
         #filtering krypton events
         if (event["is_event"]==True) & (event["OK"]): #checking if there are two S1's and one or two S2's and if the final typical krypton fit went ok
+            result["is_kryptonevent"] = True
           
             #find the last S2 signal, latest of S21 and S22
             last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
@@ -2870,6 +2870,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         
         #retrun zeros for non krypton events
         else:
+            result["is_kryptonevent"] = False
+            
             result["n_peaks_after"] = 0
             result["n_peaks_before"] = 0
             result["last_s2"] = 0

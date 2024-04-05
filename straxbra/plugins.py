@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.22'
+    __version__ = '0.0.0.23'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2784,15 +2784,15 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (("wheter the event is a krypton event", "is_kryptonevent"), np.bool_),
             (('number of peaks after last S2 if the event is a krypton event', 'n_peaks_after'), np.int32),
             (('number of peaks before the first S2 if the event is a krypton event', 'n_peaks_before'), np.int32),
-            (('number of peaks per ns after last S2 if the event is a krypton event', 'npt_peaks_after'), np.float64),
-            (('number of peaks per ns before the first S2 if the event is a krypton event', 'npt_peaks_before'), np.float64),
+            (('number of peaks per ns after last S2 if the event is a krypton event', 'npt_peaks_after'), np.float32),
+            (('number of peaks per ns before the first S2 if the event is a krypton event', 'npt_peaks_before'), np.float32),
             
             (("Dividing by zero", "divide_zero"), np.bool_),
             
-            (('sum of peak integrals in PE after last S2 if the event is a krypton event', 'area_after'), np.float64),
-            (('sum of peak integrals in PE before the first S2 if the event is a krypton event', 'area_before'), np.float64),
-            (('sum of peak integrals in PE per ns after last S2 if the event is a krypton event', 'area_pt_after'), np.float64),
-            (('sum of peak integrals in PE per ns before the first S2 if the event is a krypton event', 'area_pt_before'), np.float64),
+            (('sum of peak integrals in PE after last S2 if the event is a krypton event', 'area_after'), np.float32),
+            (('sum of peak integrals in PE before the first S2 if the event is a krypton event', 'area_before'), np.float32),
+            (('sum of peak integrals in PE per ns after last S2 if the event is a krypton event', 'area_pt_after'), np.float32),
+            (('sum of peak integrals in PE per ns before the first S2 if the event is a krypton event', 'area_pt_before'), np.float32),
             
         ]
 
@@ -2811,7 +2811,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         result["is_kryptonevent"] = event["is_event"]
         
         #filtering krypton events
-        if event["is_event"]==True:
+        if (event["is_event"]==True) & (event["ok"]): #checking if there are two S1's and one or two S2's and if the final typical krypton fit went ok
           
             #find the last S2 signal, latest of S21 and S22
             last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
@@ -2829,10 +2829,13 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["last_s2"] = last_s2
             
             #find the peaks between the last S2 signal and the endtime of the krypton event and the peaks betweenstart of the krypton event and the first S2 signal
-            afterpeaks = peaks[((peaks["time"] >= (last_s2 + event["width_s2"])) & (peaks["time"] <= event["endtime"]))]
+            afterpeaks = peaks[((peaks["time"] > (last_s2 + event["width_s2"])) & (peaks["time"] < event["endtime"]))]
+            #"width" is only the width of half of the peak area. Since peaks don't overlap, the S2 and S1 aren't in "afterpeaks" or "beforepeaks"
+    ###this must be taken in account to calculate the length of the time interval!
+            
             #beforepeaks = peaks[((peaks["time"] >= event["time"]) & (peaks["time"] <= first_s2))]
                 #with this method there are events with 0 beforepeaks - why aren't there any S1 signals??
-            beforepeaks = peaks[((peaks["time"] >= (last_s1 + event["width_s1"])) & (peaks["time"] <= first_s2))]
+            beforepeaks = peaks[((peaks["time"] > (last_s1 + event["width_s1"])) & (peaks["time"] < first_s2))]
             
             result["n_peaks_after"] = len(afterpeaks)
             result["n_peaks_before"] = len(beforepeaks)

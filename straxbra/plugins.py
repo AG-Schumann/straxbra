@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.27'
+    __version__ = '0.0.0.28'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2846,22 +2846,6 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["n_peaks_after"] = len(afterpeaks)
             result["n_peaks_before"] = len(beforepeaks)
             
-            #peaks per time
-            time_after = event["endtime"] - end_s2
-            time_before = first_s2 - end_s1
-            
-            ####becomes zero in some events
-            #marking those events to take the division by zero in account
-            if time_before == 0:
-                result["divide_zero"] = True
-            
-            else:
-                result["divide_zero"] = False
-            
-            result["npt_peaks_after"] = len(afterpeaks) / time_after
-            result["npt_peaks_before"] = len(beforepeaks) / time_before
-            
-            
             #calculating sums of peak integrals
             area_before = sum(beforepeaks["area"])
             area_after = sum(afterpeaks["area"])
@@ -2869,12 +2853,29 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["area_before"] = area_before
             result["area_after"] = area_after
             
-            #...and per time
-            result["area_pt_before"] = area_before / time_before
+            #time rates
+            time_after = event["endtime"] - end_s2
+            time_before = first_s2 - end_s1
+            
+            ####becomes zero in some events
+            #marking those events to avoid division by zero
+            if time_before == 0:
+                result["divide_zero"] = True
+                
+                result["npt_peaks_before"] = -1
+                result["area_pt_before"] = -1
+            
+            else:
+                result["divide_zero"] = False
+            
+                result["npt_peaks_before"] = len(beforepeaks) / time_before
+                result["area_pt_before"] = area_before / time_before
+            
+            result["npt_peaks_after"] = len(afterpeaks) / time_after
             result["area_pt_after"] = area_after / time_after
         
         
-        #retrun zeros for non krypton events
+        #return zeros for non krypton events
         else:
             result["is_kryptonevent"] = False
             

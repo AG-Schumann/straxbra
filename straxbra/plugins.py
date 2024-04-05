@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.25'
+    __version__ = '0.0.0.26'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2828,21 +2828,27 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             result["last_s2"] = last_s2
             
+            
+            last_s2_peak = peaks[ peaks["time"] == last_s2 ]
+            end_s2 = last_s2_peak["length"]*last_s2_peak["dt"]
+           
+            last_s1_peak = peaks[ peaks["time"] == last_s1 ]
+            end_s1 = last_s1_peak["length"]*last_s1_peak["dt"]
+            
+
             #find the peaks between the last S2 signal and the endtime of the krypton event and the peaks betweenstart of the krypton event and the first S2 signal
-            afterpeaks = peaks[((peaks["time"] > (last_s2 + event["width_s2"])) & (peaks["time"] < event["endtime"]))]
-            #"width" is only the width of half of the peak area. Since peaks don't overlap, the S2 and S1 aren't in "afterpeaks" or "beforepeaks"
-    ###this must be taken in account to calculate the length of the time interval!
+            afterpeaks = peaks[((peaks["time"] >= end_s2) & (peaks["time"] < event["endtime"]))]
             
             #beforepeaks = peaks[((peaks["time"] >= event["time"]) & (peaks["time"] <= first_s2))]
                 #with this method there are events with 0 beforepeaks - why aren't there any S1 signals??
-            beforepeaks = peaks[((peaks["time"] > (last_s1 + event["width_s1"])) & (peaks["time"] < first_s2))]
+            beforepeaks = peaks[((peaks["time"] >= end_s1) & (peaks["time"] < first_s2))]
             
             result["n_peaks_after"] = len(afterpeaks)
             result["n_peaks_before"] = len(beforepeaks)
             
             #peaks per time
-            time_after = event["endtime"] - (last_s2 + event["width_s2"])
-            time_before = first_s2 - (last_s1 + event["width_s1"])   
+            time_after = event["endtime"] - end_s2
+            time_before = first_s2 - end_s1
             
             ####becomes zero in some events
             #marking those events to take the division by zero in account

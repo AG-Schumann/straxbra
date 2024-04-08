@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.28'
+    __version__ = '0.0.0.29'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2779,8 +2779,10 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         dtype = [
             (('timestamp of the base event', 'time'), np.int64),
             (('end timestamp of the base event', 'endtime'), np.int64),
-            (('timestamp of the last S2 event', 'last_s2'), np.int64),
-            
+            (('timestamp of the end of the last S1 event', 'end_s1'), np.int64),
+            (('timestamp of the start of the S2 event', 'start_s2'), np.int64),
+            (('timestamp of the end of the last S2 event', 'end_s2'), np.int64),
+
             (("wheter the event is a krypton event", "is_kryptonevent"), np.bool_),
             (('number of peaks after last S2 if the event is a krypton event', 'n_peaks_after'), np.int32),
             (('number of peaks before the first S2 if the event is a krypton event', 'n_peaks_before'), np.int32),
@@ -2822,19 +2824,21 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             else:
                 first_s2 = np.minimum( event["time_signals"][2], event["time_signals"][3])
+            result["start_s2"] = first_s2
             
             #find the last S1 signal, latest of S11 and S11
             last_s1 = np.maximum( event["time_signals"][0], event["time_signals"][1])
             
-            result["last_s2"] = last_s2
             
             
             last_s2_peak = peaks[ peaks["time"] == last_s2 ]
             end_s2 = last_s2 + last_s2_peak["length"]*last_s2_peak["dt"]
+            result["end_s2"] = end_s2
            
             last_s1_peak = peaks[ peaks["time"] == last_s1 ]
             end_s1 = last_s1 + last_s1_peak["length"]*last_s1_peak["dt"]
-            
+            result["end_s1"] = end_s1 
+ 
 
             #find the peaks between the last S2 signal and the endtime of the krypton event and the peaks betweenstart of the krypton event and the first S2 signal
             afterpeaks = peaks[((peaks["time"] >= end_s2) & (peaks["time"] < event["endtime"]))]
@@ -2881,7 +2885,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             
             result["n_peaks_after"] = 0
             result["n_peaks_before"] = 0
-            result["last_s2"] = 0
+            result["end_s1"] = 0
+            result["start_s2"] = 0
+            result["end_s2"] = 0
             
             result["npt_peaks_after"] = 0
             result["npt_peaks_before"] = 0

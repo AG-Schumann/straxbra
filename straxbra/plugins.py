@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.29'
+    __version__ = '0.0.0.30'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2815,15 +2815,28 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
         if (event["is_event"]==True) & (event["OK"]): #checking if there are two S1's and one or two S2's and if the final typical krypton fit went ok
             result["is_kryptonevent"] = True
           
-            #find the last S2 signal, latest of S21 and S22
-            last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
+            #find the last/earliest S2 signal, latest/earliest of S21 and S22 if the signal was split, otherwise it's in both cases the first one
             
-            #choosing the right first s2, if there is only one
-            if event["time_signals"][2] == -1 or event["time_signals"][3] == -1:
+            if event["s2_split"]==True:
+                last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
+            
+                #choosing the right first s2, if there is only one
+                if event["time_signals"][2] == -1 or event["time_signals"][3] == -1:
+                    first_s2 = last_s2
+            
+                else:
+                    first_s2 = np.minimum( event["time_signals"][2], event["time_signals"][3])
+                
+                
+                
+            else: #event["s2_split"]==False
+                if event["time_signals"][2] == -1 or event["time_signals"][3] == -1:
+                    last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
+                else:
+                    last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
+                
                 first_s2 = last_s2
             
-            else:
-                first_s2 = np.minimum( event["time_signals"][2], event["time_signals"][3])
             result["start_s2"] = first_s2
             
             #find the last S1 signal, latest of S11 and S11

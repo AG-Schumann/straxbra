@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.30'
+    __version__ = '0.0.0.31'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2833,7 +2833,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
                 if event["time_signals"][2] == -1 or event["time_signals"][3] == -1:
                     last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
                 else:
-                    last_s2 = np.maximum( event["time_signals"][2], event["time_signals"][3])
+                    last_s2 = np.minimum( event["time_signals"][2], event["time_signals"][3])
                 
                 first_s2 = last_s2
             

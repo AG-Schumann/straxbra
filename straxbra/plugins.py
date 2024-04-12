@@ -2925,14 +2925,14 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
 
 @export
 @strax.takes_config(
-        strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
-                     type=list, help="Which PMTs are in the top array")
-)
+        strax.Option())
+
+@export
 class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.16"
+    __version__ = "0.0.0.17"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2948,9 +2948,19 @@ class PeaksKryptonLabelled(strax.Plugin):
           'length'), np.int32),
         (('Time resolution of the peak waveform in ns',
           'dt'), np.int16),
-          
-        (("Wheter the peak is a krypton S1 event", "is_krypton_s1"), np.bool_), 
-        (('Start of the S1 in the associated event', 'start_s1'), np.int64),
+        
+        (("Wheter the peak is associated to a krypton event", "is_krypton"), np.bool_),
+        
+        (("Wheter the peak is a krypton S1 event", "is_krypton_s1"), np.bool_),
+        (("Wheter the peak is a krypton S2 event", "is_krypton_s2"), np.bool_),
+        (("Wheter the peak is after a krypton S1 peak and before the S2 peak", "in_beforepeaks"), np.bool_),
+        (("Wheter the peak is after a krypton S2 peak and before the end of the event", "in_afterpeaks"), np.bool_),
+        
+        (("Time distance to the last S1 when the peak is associated to a krypton event", "time_distance1"), np.int32),
+        (("Time distance to the last S2 when the peak is associated to a krypton event", "time_distance2"), np.int32),
+        
+        (('Start of the associated event', 'start_event'), np.int64),
+        (('End of the associated event', 'end_event'), np.int64),
           
     ]
  
@@ -2968,8 +2978,15 @@ class PeaksKryptonLabelled(strax.Plugin):
             'range_50p_area': peaks['range_50p_area'],
             'length': peaks['length'],
             'dt': peaks['dt'],
+            'is_krypton': 0*peaks['dt'],
             'is_krypton_s1': 0*peaks['dt'],
-            'start_s1': 0*peaks['dt'],
+            'is_krypton_s2': 0*peaks['dt'],
+            'in_beforepeaks': 0*peaks['dt'],
+            'in_afterpeaks': 0*peaks['dt'],
+            'start_event': 0*peaks['dt'],
+            'end_event': 0*peaks['dt'],
+            'time_distance1': 0*peaks['dt'],
+            'time_distance2': 0*peaks['dt'],
             
             
         }
@@ -2980,53 +2997,64 @@ class PeaksKryptonLabelled(strax.Plugin):
             pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
             
             if len(pos_event) == 0:  #there is no event belonging to this peak
+                result["is_krypton"][i] = False
                 result["is_krypton_s1"][i] = False
-                result['start_s1'][i] = 0
+                result["is_krypton_s2"][i] = False
+                result["in_beforepeaks"][i] = False
+                result["in_afterpeaks"][i] = False
+                result['start_event'][i] = 0
+                result['end_event'][i] = 0
+                result['time_distance1'][i] = 0
+                result['time_distance2'][i] = 0
             
             else: #there is an event belonging to this peak
             
-                result['start_s1'][i] = pos_event['start_s1']
+                result['start_event'][i] = pos_event['time']
+                result['end_event'][i] = pos_event['endtime']
                 
-                if pos_event['start_s1'] == peak["time"]:
-                    result["is_krypton_s1"][i] = True
-                else:
+                if pos_event["is_kryptonevent"][i] == True:
+                    result["is_krypton"][i] = True
+                
+                    #checking for S1
+                    if (( peak["time"] >= pos_event['start_s1']) & ( peak["time"] < pos_event['end_s1'])):
+                        result["is_krypton_event_s1"][i] = True
+                    else:
+                        result["is_krypton_event_s1"][i] = False
+                        
+                    #checking for S2
+                    if (( peak["time"] >= pos_event['start_s2']) & ( peak["time"] < pos_event['end_s2'])):
+                        result["is_krypton_event_s2"][i] = True
+                    else:
+                        result["is_krypton_event_s2"][i] = False
+                
+                    #checking for beforepeaks and calculating time_distance1
+                    if (( peak["time"] >= pos_event['end_s1']) & ( peak["time"] < pos_event['start_s2'])):
+                        result["in_beforepeaks"][i] = True
+                        result["time_distance1"][i] = peak["time"] - pos_event['end_s1']
+                    else:
+                        result["in_beforepeaks"][i] = False 
+                        result["time_distance1"][i] = -1
+                        
+                    #checking for afterpeaks and calculating time_distance2
+                    if (( peak["time"] >= pos_event['end_s2']) & ( peak["time"] < pos_event['endtime'])):
+                        result["in_afterpeaks"][i] = True
+                        result["time_distance2"][i] = peak["time"] - pos_event['end_s2']
+                    else:
+                        result["in_afterpeaks"][i] = False
+                        result["time_distance1"][i] = -1
+                
+                else: # no krypton event
+                    result["is_krypton"][i] = False
                     result["is_krypton_s1"][i] = False
-        
+                    result["is_krypton_s2"][i] = False
+                    result["in_beforepeaks"][i] = False
+                    result["in_afterpeaks"][i] = False
+                    result['start_event'][i] = 0
+                    result['end_event'][i] = 0
+                    result['time_distance1'][i] = 0
+                    result['time_distance2'][i] = 0
+                
+                
 
         return result
         
-        
-    # def compute(self, peak, peaks, events):
-
-        # result = np.zeros_like(peak, dtype=self.dtype)
-        
-        # result = {
-            # "time": peak["time"],
-            # "endtime": peak["endtime"], 
-            # "area": peak["area"],
-            # 'range_50p_area': peak['range_50p_area'],
-            # 'length': peak['length'],
-            # 'dt': peak['dt'],
-            
-        # }
-        
-
-
-        
-        # pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
-            
-        # if len(pos_event) == 0:  #there is no event belonging to this peak
-            # result["is_krypton_s1"] = False
-            # result['start_s1'] = 0
-            
-        # else: #there is an event belonging to this peak
-        
-            # result['start_s1'] = pos_event['start_s1']
-            
-            # if pos_event['start_s1'] == peak["time"]:
-                # result["is_krypton_s1"] = True
-            # else:
-                # result["is_krypton_s1"] = False
-        
-
-        # return result

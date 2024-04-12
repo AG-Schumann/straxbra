@@ -2959,7 +2959,7 @@ class PeaksKryptonLabelled(strax.Plugin):
 
     def compute(self, peaks, events):
 
-        result = np.zeros_like(peaks, dtype=self.dtype)
+
         
         result = {
             "time": peaks["time"],
@@ -2968,6 +2968,9 @@ class PeaksKryptonLabelled(strax.Plugin):
             'range_50p_area': peaks['range_50p_area'],
             'length': peaks['length'],
             'dt': peaks['dt'],
+            'is_krypton_s1': 0*peaks['dt'],
+            'start_s1': 0*peaks['dt'],
+            
             
         }
         

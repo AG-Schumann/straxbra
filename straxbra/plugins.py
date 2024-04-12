@@ -2925,7 +2925,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
 
 @export
 @strax.takes_config(
-        strax.Option())
+        strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
+                     type=list, help="Which PMTs are in the top array")
+)
 
 @export
 class PeaksKryptonLabelled(strax.Plugin):

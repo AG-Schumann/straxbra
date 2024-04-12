@@ -2932,7 +2932,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.15"
+    __version__ = "0.0.0.16"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2957,73 +2957,73 @@ class PeaksKryptonLabelled(strax.Plugin):
 
 
 
-    # def compute(self, peaks, events):
+    def compute(self, peaks, events):
 
-        # result = np.zeros_like(peaks, dtype=self.dtype)
-        
-        # result = {
-            # "time": peaks["time"],
-            # "endtime": peaks["endtime"], 
-            # "area": peaks["area"],
-            # 'range_50p_area': peaks['range_50p_area'],
-            # 'length': peaks['length'],
-            # 'dt': peaks['dt'],
-            
-        # }
-        
-
-        # for i,peak in enumerate(peaks):
-        
-            # pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
-            
-            # if len(pos_event) == 0:  #there is no event belonging to this peak
-                # result[i]["is_krypton_s1"] = False
-                # result[i]['start_s1'] = 0
-            
-            # else: #there is an event belonging to this peak
-            
-                # result[i]['start_s1'] = pos_event['start_s1']
-                
-                # if pos_event['start_s1'] == peak["time"]:
-                    # result[i]["is_krypton_s1"] = True
-                # else:
-                    # result[i]["is_krypton_s1"] = False
-        
-
-        # return result
-        
-        
-    def compute(self, peak, peaks, events):
-
-        result = np.zeros_like(peak, dtype=self.dtype)
+        result = np.zeros_like(peaks, dtype=self.dtype)
         
         result = {
-            "time": peak["time"],
-            "endtime": peak["endtime"], 
-            "area": peak["area"],
-            'range_50p_area': peak['range_50p_area'],
-            'length': peak['length'],
-            'dt': peak['dt'],
+            "time": peaks["time"],
+            "endtime": peaks["endtime"], 
+            "area": peaks["area"],
+            'range_50p_area': peaks['range_50p_area'],
+            'length': peaks['length'],
+            'dt': peaks['dt'],
             
         }
         
 
-
+        for i,peak in enumerate(peaks):
         
-        pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
+            pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
             
-        if len(pos_event) == 0:  #there is no event belonging to this peak
-            result["is_krypton_s1"] = False
-            result['start_s1'] = 0
+            if len(pos_event) == 0:  #there is no event belonging to this peak
+                result["is_krypton_s1"][i] = False
+                result['start_s1'][i] = 0
             
-        else: #there is an event belonging to this peak
-        
-            result['start_s1'] = pos_event['start_s1']
+            else: #there is an event belonging to this peak
             
-            if pos_event['start_s1'] == peak["time"]:
-                result["is_krypton_s1"] = True
-            else:
-                result["is_krypton_s1"] = False
+                result['start_s1'][i] = pos_event['start_s1']
+                
+                if pos_event['start_s1'] == peak["time"]:
+                    result["is_krypton_s1"][i] = True
+                else:
+                    result["is_krypton_s1"][i] = False
         
 
         return result
+        
+        
+    # def compute(self, peak, peaks, events):
+
+        # result = np.zeros_like(peak, dtype=self.dtype)
+        
+        # result = {
+            # "time": peak["time"],
+            # "endtime": peak["endtime"], 
+            # "area": peak["area"],
+            # 'range_50p_area': peak['range_50p_area'],
+            # 'length': peak['length'],
+            # 'dt': peak['dt'],
+            
+        # }
+        
+
+
+        
+        # pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
+            
+        # if len(pos_event) == 0:  #there is no event belonging to this peak
+            # result["is_krypton_s1"] = False
+            # result['start_s1'] = 0
+            
+        # else: #there is an event belonging to this peak
+        
+            # result['start_s1'] = pos_event['start_s1']
+            
+            # if pos_event['start_s1'] == peak["time"]:
+                # result["is_krypton_s1"] = True
+            # else:
+                # result["is_krypton_s1"] = False
+        
+
+        # return result

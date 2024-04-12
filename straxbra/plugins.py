@@ -2932,9 +2932,9 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.01"
+    __version__ = "0.0.0.02"
     parallel = True
-    depends_on = ('peaks', "sp_krypton_single_electrons")
+    depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
         (('Start time of the peak (ns since unix epoch)',
           'time'), np.int64),

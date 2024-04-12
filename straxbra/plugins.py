@@ -2932,7 +2932,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.09"
+    __version__ = "0.0.0.10"
     parallel = True
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2950,7 +2950,7 @@ class PeaksKryptonLabelled(strax.Plugin):
           'dt'), np.int16),
           
         (("Wheter the peak is a krypton S1 event", "is_krypton_s1"), np.bool_), 
-        (('Start of the S1 in the associated event', 'start_s1'), np.float32),
+        (('Start of the S1 in the associated event', 'start_s1'), np.int64),
           
     ]
  

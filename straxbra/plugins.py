@@ -2915,3 +2915,69 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["area_pt_after"] = 0
 
         return(result)
+
+
+
+
+
+
+
+
+@export
+@strax.takes_config(
+        strax.Option('top_pmts', track=False, default=list(range(1,7+1)),
+                     type=list, help="Which PMTs are in the top array")
+)
+class PeaksKryptonLabelled(strax.Plugin):
+    """
+    Plugin to label peaks belonging to a krypton event
+    """
+    __version__ = "0.0.0"
+    parallel = True
+    depends_on = ('peaks', "sp_krypton_single_electrons")
+    dtype = [
+        (('Start time of the peak (ns since unix epoch)',
+          'time'), np.int64),
+        (('End time of the peak (ns since unix epoch)',
+          'endtime'), np.int64),
+        (('Peak integral in PE',
+            'area'), np.float32),
+        (('Width (in ns) of the central 50% area of the peak',
+            'range_50p_area'), np.float32),
+        (('Length of the peak waveform in samples',
+          'length'), np.int32),
+        (('Time resolution of the peak waveform in ns',
+          'dt'), np.int16),
+          
+        (("Wheter the peak is a krypton S1 event", "is_krypton_s1"), np.bool_), 
+          
+    ]
+        return dtype
+
+
+
+    def compute(self, peaks, events):
+        result = {
+            "time": peaks["time"],
+            "endtime": peaks["endtime"], 
+            "area": peaks["area"],
+            'range_50p_area': peaks['range_50p_area'],
+            'length': peaks['length'],
+            'dt': peaks['dt'],
+            
+        }
+        
+        pos_event = events[ (events["time"] <= peaks["time"]) & (events["endtime"] >= peaks["endtime"]) ]
+        
+        if len(pos_event) == 0:  #there is no event belonging to this peak
+            result["is_krypton_s1"] = False
+        
+        else: #there is an event beloning to this peak
+        
+            if pos_event['start_s1'] == peaks["time"]:
+                result["is_krypton_s1"] = True
+            else:
+                result["is_krypton_s1"] = False
+        
+
+        return result

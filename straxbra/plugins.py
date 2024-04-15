@@ -2934,7 +2934,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.19"
+    __version__ = "0.0.0.20"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -3014,20 +3014,20 @@ class PeaksKryptonLabelled(strax.Plugin):
                 result['start_event'][i] = pos_event['time']
                 result['end_event'][i] = pos_event['endtime']
                 
-                if pos_event["is_kryptonevent"] == True:
+                if pos_event["is_krypton"] == True:
                     result["is_krypton"][i] = True
                 
                     #checking for S1
                     if (( peak["time"] >= pos_event['start_s1']) & ( peak["time"] < pos_event['end_s1'])):
-                        result["is_krypton_event_s1"][i] = True
+                        result["is_krypton_s1"][i] = True
                     else:
-                        result["is_krypton_event_s1"][i] = False
+                        result["is_krypton_s1"][i] = False
                         
                     #checking for S2
                     if (( peak["time"] >= pos_event['start_s2']) & ( peak["time"] < pos_event['end_s2'])):
-                        result["is_krypton_event_s2"][i] = True
+                        result["is_krypton_s2"][i] = True
                     else:
-                        result["is_krypton_event_s2"][i] = False
+                        result["is_krypton_s2"][i] = False
                 
                     #checking for beforepeaks and calculating time_distance1
                     if (( peak["time"] >= pos_event['end_s1']) & ( peak["time"] < pos_event['start_s2'])):

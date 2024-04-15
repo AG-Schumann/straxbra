@@ -2934,7 +2934,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.23"
+    __version__ = "0.0.0.24"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2958,8 +2958,8 @@ class PeaksKryptonLabelled(strax.Plugin):
         (("Wheter the peak is after a krypton S1 peak and before the S2 peak", "in_beforepeaks"), np.bool_),
         (("Wheter the peak is after a krypton S2 peak and before the end of the event", "in_afterpeaks"), np.bool_),
         
-        (("Time distance to the last S1 when the peak is associated to a krypton event", "time_distance1"), np.float32),
-        (("Time distance to the last S2 when the peak is associated to a krypton event", "time_distance2"), np.float32),
+        (("Time distance to the last S1 when the peak is associated to a krypton event", "time_distance1"), np.int64),
+        (("Time distance to the last S2 when the peak is associated to a krypton event", "time_distance2"), np.int64),
         
         (('Start of the associated event', 'start_event'), np.int64),
         (('End of the associated event', 'end_event'), np.int64),
@@ -2985,10 +2985,10 @@ class PeaksKryptonLabelled(strax.Plugin):
             'is_krypton_s2': 0*peaks['dt'],
             'in_beforepeaks': 0*peaks['dt'],
             'in_afterpeaks': 0*peaks['dt'],
-            'start_event': 0*peaks['dt'],
-            'end_event': 0*peaks['dt'],
-            'time_distance1': 0*peaks['dt'],
-            'time_distance2': 0*peaks['dt'],
+            'start_event': 0*peaks['time'],
+            'end_event': 0*peaks['time'],
+            'time_distance1': 0*peaks['time'],
+            'time_distance2': 0*peaks['time'],
             
             
         }

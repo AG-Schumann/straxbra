@@ -2934,7 +2934,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.21"
+    __version__ = "0.0.0.22"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -3043,7 +3043,7 @@ class PeaksKryptonLabelled(strax.Plugin):
                         result["time_distance2"][i] = peak["time"] - pos_event['end_s2']
                     else:
                         result["in_afterpeaks"][i] = False
-                        result["time_distance1"][i] = -1
+                        result["time_distance2"][i] = -1
                 
                 else: # no krypton event
                     result["is_krypton"][i] = False

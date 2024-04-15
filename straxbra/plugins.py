@@ -2934,7 +2934,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.24"
+    __version__ = "0.0.0.25"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2950,6 +2950,8 @@ class PeaksKryptonLabelled(strax.Plugin):
           'length'), np.int32),
         (('Time resolution of the peak waveform in ns',
           'dt'), np.int16),
+          
+         (("Time distance to the last peak", "time_to_last"), np.int64),
         
         (("Wheter the peak is associated to a krypton event", "is_krypton"), np.bool_),
         
@@ -2987,6 +2989,7 @@ class PeaksKryptonLabelled(strax.Plugin):
             'in_afterpeaks': 0*peaks['dt'],
             'start_event': 0*peaks['time'],
             'end_event': 0*peaks['time'],
+            'time_to_last': 0*peaks['time'],
             'time_distance1': 0*peaks['time'],
             'time_distance2': 0*peaks['time'],
             
@@ -2995,6 +2998,13 @@ class PeaksKryptonLabelled(strax.Plugin):
         
 
         for i,peak in enumerate(peaks):
+        
+            #Time distance to the last peak before
+            if i == 0:
+                result["time_to_last"][i] = 0
+                
+            else:
+                result["time_to_last"][i] = peak["time"] - result["time"][i-1]
         
             pos_event = events[ (events["time"] <= peak["time"]) & (events["endtime"] >= peak["endtime"]) ]
             

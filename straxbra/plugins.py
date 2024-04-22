@@ -2770,7 +2770,7 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
     to evaluate single elctron signals
     
     """
-    __version__ = '0.0.0.32'
+    __version__ = '0.0.0.33'
     depends_on = ('events', 'peaks', "peak_basics", 'sp_krypton', 'sp_krypton_summary')
   
   
@@ -2785,6 +2785,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('timestamp of the end of the last S2 event', 'end_s2'), np.int64),
 
             (("wheter the event is a krypton event", "is_kryptonevent"), np.bool_),
+            (("Time from end S1 to start S2", "length_before"), np.int32),
+            (("Time from end S2 to endtime", "length_after"), np.int32),
+            
             (('number of peaks after last S2 if the event is a krypton event', 'n_peaks_after'), np.int32),
             (('number of peaks before the first S2 if the event is a krypton event', 'n_peaks_before'), np.int32),
             (('number of peaks per ns after last S2 if the event is a krypton event', 'npt_peaks_after'), np.float32),
@@ -2854,6 +2857,10 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             end_s1 = last_s1 + last_s1_peak["length"]*last_s1_peak["dt"]
             result["end_s1"] = end_s1 
  
+            #calculating length of beforepeaks and afterpeaks
+            result["length_before"] = first_s2 - end_s1
+            result["length_after"] = event["endtime"] - end_s2
+ 
 
             #find the peaks between the last S2 signal and the endtime of the krypton event and the peaks between start of the krypton event and the first S2 signal
             afterpeaks = peaks[((peaks["time"] >= end_s2) & (peaks["time"] < event["endtime"]))]
@@ -2903,6 +2910,9 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             result["start_s2"] = 0
             result["end_s2"] = 0
             
+            result["length_before"] = 0
+            result["length_after"] = 0
+            
             result["npt_peaks_after"] = 0
             result["npt_peaks_before"] = 0
             
@@ -2934,7 +2944,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.27"
+    __version__ = "0.0.0.28"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2957,8 +2967,8 @@ class PeaksKryptonLabelled(strax.Plugin):
         
         (("Wheter the peak is associated to a krypton event", "is_krypton"), np.bool_),
         
-        (("Wheter the peak is a krypton S1 event", "is_krypton_s1"), np.bool_),
-        (("Wheter the peak is a krypton S2 event", "is_krypton_s2"), np.bool_),
+        (("Wheter the peak is a krypton S1 event or between the two krypton S1's", "is_krypton_s1"), np.bool_),
+        (("Wheter the peak is a krypton S2 event or between the two krypton S2's", "is_krypton_s2"), np.bool_),
         (("Wheter the peak is after a krypton S1 peak and before the S2 peak", "in_beforepeaks"), np.bool_),
         (("Wheter the peak is after a krypton S2 peak and before the end of the event", "in_afterpeaks"), np.bool_),
         

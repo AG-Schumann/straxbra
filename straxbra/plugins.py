@@ -2785,8 +2785,8 @@ class SpKryptonSingleElectrons(strax.LoopPlugin):
             (('timestamp of the end of the last S2 event', 'end_s2'), np.int64),
 
             (("wheter the event is a krypton event", "is_kryptonevent"), np.bool_),
-            (("Time from end S1 to start S2", "length_before"), np.int32),
-            (("Time from end S2 to endtime", "length_after"), np.int32),
+            (("Time from end S1 to start S2 in ns", "length_before"), np.int32),
+            (("Time from end S2 to endtime in ns", "length_after"), np.int32),
             
             (('number of peaks after last S2 if the event is a krypton event', 'n_peaks_after'), np.int32),
             (('number of peaks before the first S2 if the event is a krypton event', 'n_peaks_before'), np.int32),
@@ -2977,6 +2977,9 @@ class PeaksKryptonLabelled(strax.Plugin):
         
         (('Start of the associated event', 'start_event'), np.int64),
         (('End of the associated event', 'end_event'), np.int64),
+        
+        (('Summed length of all time windows beforepeaks in ns', 'length_before_all'), np.int32),
+        (('Summed length of all time windows afterpeaks in ns', 'length_after_all'), np.int32),
           
     ]
  
@@ -3005,10 +3008,14 @@ class PeaksKryptonLabelled(strax.Plugin):
             'time_to_last': 0*peaks['time'],
             'time_distance1': 0*peaks['time'],
             'time_distance2': 0*peaks['time'],
+            'length_before_all': 0*peaks['length'],
+            'length_after_all': 0*peaks['length'],
             
             
         }
         
+        result["length_before_all"] = np.sum(events["length_before"])
+        result["length_after_all"] = np.sum(events["length_after"])
 
         for i,peak in enumerate(peaks):
         
@@ -3039,7 +3046,7 @@ class PeaksKryptonLabelled(strax.Plugin):
                 
                 if pos_event["is_kryptonevent"] == True:
                     result["is_krypton"][i] = True
-                
+                    
                     #checking for S1
                     if (( peak["time"] >= pos_event['start_s1']) & ( peak["time"] < pos_event['end_s1'])):
                         result["is_krypton_s1"][i] = True

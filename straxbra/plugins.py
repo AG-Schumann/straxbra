@@ -3002,8 +3002,8 @@ class PeaksKryptonLabelled(strax.Plugin):
             'length': peaks['length'],
             'dt': peaks['dt'],
             "data": peaks["data"],
-            'area_fraction_top': peaks["area_fraction_top"]
-            'n_channels': peaks["n_channels"]
+            'area_fraction_top': peaks["area_fraction_top"],
+            'n_channels': peaks["n_channels"],
             'is_krypton': 0*peaks['dt'],
             'is_krypton_s1': 0*peaks['dt'],
             'is_krypton_s2': 0*peaks['dt'],

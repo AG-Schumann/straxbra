@@ -2959,7 +2959,7 @@ class PeaksKryptonLabelled(strax.Plugin):
         (('Width (in ns) of the central 50% area of the peak',
             'range_50p_area'), np.float32),
         (("Peak widths in range of central area fraction [ns]",
-            "width"), 	('<f4', (11,)),
+            "width"), 	('<f4', (11,))  ),
         (('Length of the peak waveform in samples',
           'length'), np.int32),
         (('Time resolution of the peak waveform in ns',

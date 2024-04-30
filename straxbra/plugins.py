@@ -2944,7 +2944,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.29"
+    __version__ = "0.0.0.30"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2958,6 +2958,8 @@ class PeaksKryptonLabelled(strax.Plugin):
             'n_channels'), np.int16),
         (('Width (in ns) of the central 50% area of the peak',
             'range_50p_area'), np.float32),
+        (("Peak widths in range of central area fraction [ns]",
+            "width"), 	('<f4', (11,)),
         (('Length of the peak waveform in samples',
           'length'), np.int32),
         (('Time resolution of the peak waveform in ns',
@@ -2999,6 +3001,7 @@ class PeaksKryptonLabelled(strax.Plugin):
             "endtime": peaks["endtime"], 
             "area": peaks["area"],
             'range_50p_area': peaks['range_50p_area'],
+            'width': peaks['width'],
             'length': peaks['length'],
             'dt': peaks['dt'],
             "data": peaks["data"],

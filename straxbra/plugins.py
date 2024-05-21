@@ -2944,7 +2944,7 @@ class PeaksKryptonLabelled(strax.Plugin):
     """
     Plugin to label peaks belonging to a krypton event
     """
-    __version__ = "0.0.0.32"
+    __version__ = "0.0.0.33"
     parallel = False
     depends_on = ('peaks', "peak_basics", "sp_krypton_single_electrons")
     dtype = [
@@ -2972,7 +2972,10 @@ class PeaksKryptonLabelled(strax.Plugin):
             'area_fraction_top'), np.float32),
         (('PMT number which contributes the most PE',
             'max_pmt'), np.int16),
-          
+            
+        (('Total number of saturated channels', 'n_saturated_channels'), np.int16),
+        (('Check if channel is saturated', 'saturated_channel'), np.bool, (8,)),
+
         (("Time distance to the last peak", "time_to_last"), np.int64),
         
         (("Wheter the peak is associated to a krypton event", "is_krypton"), np.bool_),
@@ -3013,6 +3016,8 @@ class PeaksKryptonLabelled(strax.Plugin):
             'area_fraction_top': peaks["area_fraction_top"],
             'n_channels': peaks["n_channels"],
             'max_pmt': peaks["max_pmt"],
+            "n_saturated_channels": peaks["n_saturated_channels"],
+            "saturated_channel": peaks["saturated_channel"],
             'is_krypton': 0*peaks['dt'],
             'is_krypton_s1': 0*peaks['dt'],
             'is_krypton_s2': 0*peaks['dt'],
@@ -3033,7 +3038,7 @@ class PeaksKryptonLabelled(strax.Plugin):
         result["length_after_all"] = np.sum(events["length_after"])
 
         for i,peak in enumerate(peaks):
-        
+            
             #Time distance to the last peak before
             if i == 0:
                 result["time_to_last"][i] = 0

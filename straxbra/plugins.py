@@ -140,7 +140,7 @@ class DAQReader(strax.ParallelSourcePlugin):
                      help='PMT gains'),
         strax.Option('min_gain', track=False, type=float,
                      default=1e5, help='Minimum PMT gain'),
-        strax.Option('hit_threshold', type=int, default=30,
+        strax.Option('hit_threshold', type=int, default=50,
                      help="Hitfinder threshold"),
         strax.Option('left_cut_extension', default=2,
                      help='Cut up to this to many samples before a hit'),
@@ -154,7 +154,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.3'
+    __version__ = '0.0.4.2'
 
     depends_on = ('raw_records',)
     data_kind = 'records'

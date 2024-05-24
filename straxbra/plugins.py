@@ -188,7 +188,7 @@ class Records(strax.Plugin):
 
 @export
 @strax.takes_config(
-        strax.Option('hit_threshold', type=int, default=30,
+        strax.Option('hit_threshold', type=int, default=50,
                      help="Hitfinder threshold"),
         strax.Option('peak_gap_threshold', type=int, default=150,
                      help='Number of ns without hits to start a new peak'),
@@ -225,7 +225,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.12"
+    __version__ = "0.0.1.13"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True

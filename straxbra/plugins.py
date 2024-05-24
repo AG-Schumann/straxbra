@@ -140,7 +140,7 @@ class DAQReader(strax.ParallelSourcePlugin):
                      help='PMT gains'),
         strax.Option('min_gain', track=False, type=float,
                      default=1e5, help='Minimum PMT gain'),
-        strax.Option('hit_threshold', type=int, default=50,
+        strax.Option('hit_threshold', type=int, default=200,
                      help="Hitfinder threshold"),
         strax.Option('left_cut_extension', default=2,
                      help='Cut up to this to many samples before a hit'),
@@ -188,7 +188,7 @@ class Records(strax.Plugin):
 
 @export
 @strax.takes_config(
-        strax.Option('hit_threshold', type=int, default=50,
+        strax.Option('hit_threshold', type=int, default=200,
                      help="Hitfinder threshold"),
         strax.Option('peak_gap_threshold', type=int, default=150,
                      help='Number of ns without hits to start a new peak'),

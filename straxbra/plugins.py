@@ -190,6 +190,8 @@ class Records(strax.Plugin):
 @strax.takes_config(
         strax.Option('hit_threshold', type=int, default=70,    ##### original default 30
                      help="Hitfinder threshold"),
+        strax.Option('peak_hit_threshold', type=int, default=70,    ##### added
+                     help="Hitfinder threshold for peaks"),
         strax.Option('peak_gap_threshold', type=int, default=150,
                      help='Number of ns without hits to start a new peak'),
         strax.Option('peak_left_extension', type=int, default=20,
@@ -225,7 +227,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.13"
+    __version__ = "0.0.1.14"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -243,7 +245,7 @@ class Peaks(strax.Plugin):
     
     def compute(self, records):
         r = records
-        hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
+        hits = strax.find_hits(r, threshold=self.config['peak_hit_threshold'])
         hits = strax.sort_by_time(hits)
         
         time_delay = self.config['time_delay']

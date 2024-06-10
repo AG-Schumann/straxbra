@@ -154,7 +154,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.3'
+    __version__ = '0.0.4.4'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -180,7 +180,7 @@ class Records(strax.Plugin):
 
         strax.zero_out_of_bounds(r)
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
-        strax.cut_outside_hits(r, hits,
+        r = strax.cut_outside_hits(r, hits,
                 left_extension = self.config['left_cut_extension'],
                 right_extension = self.config['right_cut_extension'])
         return r

@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.7'
+    __version__ = '0.0.4.8'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -174,7 +174,6 @@ class Records(strax.Plugin):
         channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
         r = raw_records
               
-        print(f"time_delay: {time_delay}")
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]
         
@@ -191,6 +190,7 @@ class Records(strax.Plugin):
         time_delay = self.config['time_delay']
         for record in enumerate(r):
             record["time"] -= time_delay[ record['channel'] ]
+        print(f"time_delay: {time_delay}")
             
         return r
 

@@ -188,8 +188,10 @@ class Records(strax.Plugin):
                 right_extension = self.config['right_cut_extension'])
                 
         time_delay = self.config['time_delay']
+        if time_delay is False:
+            time_delay = np.zeros(self.config['n_channels'])
         for record in r:
-            record["time"] -= time_delay[ int(record['channel']) ]
+            record["time"] = record["time"] - time_delay[ int(record['channel']) ]
         print(f"time_delay: {time_delay}")
             
         return r

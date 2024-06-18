@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.10'
+    __version__ = '0.0.4.11'
 
     depends_on = ('raw_records',)
     data_kind = 'records'

@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.9'
+    __version__ = '0.0.4.10'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -188,7 +188,7 @@ class Records(strax.Plugin):
                 right_extension = self.config['right_cut_extension'])
                 
         time_delay = self.config['time_delay']
-        for record in enumerate(r):
+        for record in r:
             record["time"] -= time_delay[ int(record['channel']) ]
         print(f"time_delay: {time_delay}")
             

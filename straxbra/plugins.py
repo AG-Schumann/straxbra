@@ -148,13 +148,15 @@ class DAQReader(strax.ParallelSourcePlugin):
                      help='Cut past this many samples after a hit'),
         strax.Option('channels_to_ignore', default=None,
                      help='which channels you want to ignore'),
+        strax.Option('time_delay', default=False,
+                     help='how much channels are delayed, for example transient time in different PMTs'),
 
 )
 class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.4'
+    __version__ = '0.0.4.5'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -171,6 +173,12 @@ class Records(strax.Plugin):
         
         channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
         r = raw_records
+        
+        for r_i, record in enumerate(r):
+            record["time"] -= time_delay[ record['channel'] ]
+        
+        
+        print(f"time_delay: {time_delay}")
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]
         
@@ -202,11 +210,11 @@ class Records(strax.Plugin):
                      help='Mininmum number of channels to form a peak'),
        
         
-        strax.Option('peak_min_area', default=2,
+        strax.Option('peak_min_area', default=0.3,   # in pe
                      help='Minimum area to form a peak'),
         strax.Option('peak_max_duration', default=50e3,
                      help='Maximum peak duration'),
-        strax.Option('split_min_height', default=25,
+        strax.Option('split_min_height', default=25,  # pe/ns
                      help='Minimum prominence height to split peaks'),
         strax.Option('split_min_ratio', default=4,
                      help='Minimum prominence ratio to split peaks'),
@@ -227,7 +235,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.14"
+    __version__ = "0.0.1.15"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -248,7 +256,7 @@ class Peaks(strax.Plugin):
         hits = strax.find_hits(r, threshold=self.config['peak_hit_threshold'])
         hits = strax.sort_by_time(hits)
         
-        time_delay = self.config['time_delay']
+        time_delay = [0,0,0,0,0,0,0,0] #self.config['time_delay']
         
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])

@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.12'
+    __version__ = '0.0.4.13'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -172,7 +172,7 @@ class Records(strax.Plugin):
         print(self.config['to_pe'])
         
         channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
-        r = raw_records
+        r = raw_records.copy()  # Create a writable copy of raw_records
               
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]

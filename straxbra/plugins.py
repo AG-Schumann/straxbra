@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.11'
+    __version__ = '0.0.4.12'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -181,18 +181,19 @@ class Records(strax.Plugin):
             for ch in self.config['channels_to_ignore']:
                 r = r[r['channel'] != ch]
 
-        strax.zero_out_of_bounds(r)
-        hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
-        r = strax.cut_outside_hits(r, hits,
-                left_extension = self.config['left_cut_extension'],
-                right_extension = self.config['right_cut_extension'])
-                
         time_delay = self.config['time_delay']
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])
         for record in r:
             record["time"] = record["time"] - time_delay[ int(record['channel']) ]
         print(f"time_delay: {time_delay}")
+
+        strax.zero_out_of_bounds(r)
+        hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
+        r = strax.cut_outside_hits(r, hits,
+                left_extension = self.config['left_cut_extension'],
+                right_extension = self.config['right_cut_extension'])
+                
             
         return r
 

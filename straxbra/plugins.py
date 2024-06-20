@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.17'
+    __version__ = '0.0.4.18'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -187,8 +187,8 @@ class Records(strax.Plugin):
 
         strax.zero_out_of_bounds(r)
         
-        for ch in range( 0, 8):
-            r[ r['channel'] == ch]["time"] = r[ r['channel'] == ch]["time"] - time_delay[ ch ]
+        for ch, delay in enumerate(time_delay):
+            r[ r['channel'] == ch]["time"] = r[ r['channel'] == ch]["time"] - delay
         print(f"time_delay: {time_delay}")
         
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])

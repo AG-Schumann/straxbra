@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.16'
+    __version__ = '0.0.4.17'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -185,11 +185,12 @@ class Records(strax.Plugin):
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])
 
+        strax.zero_out_of_bounds(r)
+        
         for ch in range( 0, 8):
             r[ r['channel'] == ch]["time"] = r[ r['channel'] == ch]["time"] - time_delay[ ch ]
         print(f"time_delay: {time_delay}")
-
-        strax.zero_out_of_bounds(r)
+        
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
         r = strax.cut_outside_hits(r, hits,
                 left_extension = self.config['left_cut_extension'],
@@ -277,7 +278,7 @@ class Peaks(strax.Plugin):
                                  min_area=self.config['peak_min_area'],
                                  max_duration=self.config['peak_max_duration'],
                                  )
-        strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'], time_delay = time_delay)
+        strax.sum_waveform(peaks, r, adc_to_pe=self.config['to_pe'], time_delay = time_delay) #here the downsampling takes place. This may cause problems for the widths of small peaks
         peaks = peaks[peaks['dt'] > 0]  # removes strange edge case
         peaks = strax.split_peaks(peaks, r, self.config['to_pe'],
                                   time_delay = time_delay,

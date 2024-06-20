@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.14'
+    __version__ = '0.0.4.15'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -184,8 +184,8 @@ class Records(strax.Plugin):
         time_delay = self.config['time_delay']
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])
-        for record in r:
-            record["time"] = record["time"] - time_delay[ record['channel'] ]
+
+        r["time"] = r["time"] - time_delay[ r['channel'] ]
         print(f"time_delay: {time_delay}")
 
         strax.zero_out_of_bounds(r)

@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.13'
+    __version__ = '0.0.4.14'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -185,7 +185,7 @@ class Records(strax.Plugin):
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])
         for record in r:
-            record["time"] = record["time"] - time_delay[ int(record['channel']) ]
+            record["time"] = record["time"] - time_delay[ record['channel'] ]
         print(f"time_delay: {time_delay}")
 
         strax.zero_out_of_bounds(r)
@@ -239,7 +239,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.15"
+    __version__ = "0.0.1.16"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -262,8 +262,8 @@ class Peaks(strax.Plugin):
         
         time_delay = [0,0,0,0,0,0,0,0] #self.config['time_delay']
         
-        if time_delay is False:
-            time_delay = np.zeros(self.config['n_channels'])
+        #if time_delay is False:
+        #    time_delay = np.zeros(self.config['n_channels'])
         
         print(f"time_delay: {time_delay}")
         

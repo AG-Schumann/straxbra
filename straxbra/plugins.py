@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.19'
+    __version__ = '0.0.4.20'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -190,8 +190,8 @@ class Records(strax.Plugin):
         #for ch, delay in enumerate(time_delay):
         #    r[ r['channel'] == ch]["time"] = r[ r['channel'] == ch]["time"] - delay
         
-        for record in r:
-            record["time"] = record["time"] - time_delay[ record["channel"]]
+        for xx in r:
+            xx["time"] = xx["time"] - time_delay[ xx["channel"]]
         
         print(f"time_delay: {time_delay}")
         

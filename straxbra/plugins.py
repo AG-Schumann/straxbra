@@ -156,7 +156,7 @@ class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.21'
+    __version__ = '0.0.4.22'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -173,14 +173,7 @@ class Records(strax.Plugin):
         
         channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
         r = raw_records.copy()  # Create a writable copy of raw_records
-              
-        for ch in channels_to_cut.reshape(-1):
-            r = r[r['channel'] != ch]
         
-        if isinstance(self.config['channels_to_ignore'], list):
-            for ch in self.config['channels_to_ignore']:
-                r = r[r['channel'] != ch]
-
         time_delay = self.config['time_delay']
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])
@@ -193,7 +186,13 @@ class Records(strax.Plugin):
         #for record in r:
         #    record["time"] = record["time"] - time_delay[ record["channel"]]
         
-        print(f"time_delay: {time_delay}")
+        print(f"time_delay: {time_delay}")      
+        for ch in channels_to_cut.reshape(-1):
+            r = r[r['channel'] != ch]
+        
+        if isinstance(self.config['channels_to_ignore'], list):
+            for ch in self.config['channels_to_ignore']:
+                r = r[r['channel'] != ch]
         
         hits = strax.find_hits(r, threshold=self.config['hit_threshold'])
         r = strax.cut_outside_hits(r, hits,

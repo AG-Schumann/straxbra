@@ -216,7 +216,7 @@ class Records(strax.Plugin):
                      help="Hitfinder threshold"),
         strax.Option('peak_hit_threshold', type=int, default=70,    ##### added
                      help="Hitfinder threshold for peaks"),
-        strax.Option('peak_gap_threshold', type=int, default=150,
+        strax.Option('peak_gap_threshold', type=int, default=200,
                      help='Number of ns without hits to start a new peak'),
         strax.Option('peak_left_extension', type=int, default=70,
                      help='Extend peaks by this many ns to the left'),

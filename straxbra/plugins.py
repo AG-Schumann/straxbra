@@ -148,15 +148,15 @@ class DAQReader(strax.ParallelSourcePlugin):
                      help='Cut past this many samples after a hit'),
         strax.Option('channels_to_ignore', default=None,
                      help='which channels you want to ignore'),
-        strax.Option('time_delay', default=False,
-                     help='how much channels are delayed, for example transient time in different PMTs'),
+#        strax.Option('time_delay', default=False,
+#                     help='how much channels are delayed, for example transient time in different PMTs'),
 
 )
 class Records(strax.Plugin):
     """
     Shamelessly stolen from straxen
     """
-    __version__ = '0.0.4.22'
+    __version__ = '0.0.4.23'
 
     depends_on = ('raw_records',)
     data_kind = 'records'
@@ -172,21 +172,28 @@ class Records(strax.Plugin):
         print(self.config['to_pe'])
         
         channels_to_cut = np.argwhere(self.config['to_pe'] > (adc_to_e/self.config['min_gain']))
-        r = raw_records.copy()  # Create a writable copy of raw_records
+        r = raw_records
+#######
+# Unfortunately this time delay didn't work. Setting the peak_left_extension to less than 70 ns may result in incomplete waveforms.
+# Therefore it would be great to fix this and remove the time delay from sum_waveform / peaks and implement it here.
+#######        
+#        r = raw_records.copy()  # Create a writable copy of raw_records
         
-        time_delay = self.config['time_delay']
-        if time_delay is False:
-            time_delay = np.zeros(self.config['n_channels'])
-
-        strax.zero_out_of_bounds(r)
-        
-        for ch, delay in enumerate(time_delay):
-            r["time"][ r['channel'] == ch] = r["time"][ r['channel'] == ch] - delay
+#        time_delay = self.config['time_delay']
+#        if time_delay is False:
+#            time_delay = np.zeros(self.config['n_channels'])
+#            
+#        for ch, delay in enumerate(time_delay):
+#            r["time"][ r['channel'] == ch] = r["time"][ r['channel'] == ch] - delay
         
         #for record in r:
         #    record["time"] = record["time"] - time_delay[ record["channel"]]
         
-        print(f"time_delay: {time_delay}")      
+#        print(f"time_delay: {time_delay}")  
+
+        strax.zero_out_of_bounds(r)
+
+        
         for ch in channels_to_cut.reshape(-1):
             r = r[r['channel'] != ch]
         
@@ -211,7 +218,7 @@ class Records(strax.Plugin):
                      help="Hitfinder threshold for peaks"),
         strax.Option('peak_gap_threshold', type=int, default=150,
                      help='Number of ns without hits to start a new peak'),
-        strax.Option('peak_left_extension', type=int, default=20,
+        strax.Option('peak_left_extension', type=int, default=70,
                      help='Extend peaks by this many ns to the left'),
         strax.Option('peak_right_extension', type=int, default=120,
                      help='Extend peaks by this many ns to the right'),
@@ -244,7 +251,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.16"
+    __version__ = "0.0.1.17"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -261,14 +268,16 @@ class Peaks(strax.Plugin):
     # split_peaks(peaks, records, to_pe, time_delay,...
     
     def compute(self, records):
+        
+        if peak_left_extension < 70:
+            print("Warning: An unlucky implemented time delay may cut waveforms from channel 0 for peak_left_extension < 70 ns.")        
+        
         r = records
         hits = strax.find_hits(r, threshold=self.config['peak_hit_threshold'])
         hits = strax.sort_by_time(hits)
-        
-        time_delay = [0,0,0,0,0,0,0,0] #self.config['time_delay']
-        
-        #if time_delay is False:
-        #    time_delay = np.zeros(self.config['n_channels'])
+                
+        if time_delay is False:
+            time_delay = np.zeros(self.config['n_channels'])
         
         print(f"time_delay: {time_delay}")
         

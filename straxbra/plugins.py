@@ -251,7 +251,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.18"
+    __version__ = "0.0.1.19"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -275,7 +275,8 @@ class Peaks(strax.Plugin):
         r = records
         hits = strax.find_hits(r, threshold=self.config['peak_hit_threshold'])
         hits = strax.sort_by_time(hits)
-                
+        
+        time_delay = self.config['time_delay']
         if time_delay is False:
             time_delay = np.zeros(self.config['n_channels'])
         

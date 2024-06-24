@@ -251,7 +251,7 @@ class Peaks(strax.Plugin):
     """
     Stolen from straxen, extended marginally
     """
-    __version__ = "0.0.1.17"
+    __version__ = "0.0.1.18"
     depends_on = ('records',)
     data_kind = 'peaks'
     parallel = True
@@ -269,7 +269,7 @@ class Peaks(strax.Plugin):
     
     def compute(self, records):
         
-        if peak_left_extension < 70:
+        if self.config['peak_left_extension'] < 70:
             print("Warning: An unlucky implemented time delay may cut waveforms from channel 0 for peak_left_extension < 70 ns.")        
         
         r = records

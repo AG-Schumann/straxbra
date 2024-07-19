@@ -547,7 +547,7 @@ class NCompeting(strax.OverlapWindowPlugin):
         return dict(n_competing=results)
 
     @staticmethod
-    @numba.jit(nopython=True, nogil=True, cache=True)
+    @numba.jit(nopython=True, nogil=True, cache=False)
     def find_n_competing(peaks, window, fraction):
         n = len(peaks)
         t = peaks['time']

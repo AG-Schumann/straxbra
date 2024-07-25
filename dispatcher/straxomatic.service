@@ -1,6 +1,6 @@
 [Unit]
 Description=Automatic straxing service
-Requires=mongod_xebra.service
+#Requires=mongod_xebra.service
 
 [Service]
 Type=simple
@@ -8,7 +8,7 @@ Restart=always
 RestartSec=3
 TimeoutSec=15
 User=doberman
-Group=appadmin
+Group=dispatchergroup
 EnvironmentFile=-/etc/default/daqspatch_env
 ExecStart=/software/anaconda3/envs/strax/bin/python3 /software/straxbra/dispatcher/straxomatic.py
 

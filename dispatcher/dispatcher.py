@@ -22,6 +22,9 @@ import json
 from straxomatic import experimental_setups
 
 
+statii = ["IDLE", "ARMING", "ARMED", "RUNNING", "ERROR", "UNKNOWN"];
+
+
 class Scheduler(threading.Thread):
     def __init__(self, sh, logger):
         threading.Thread.__init__(self)
@@ -79,6 +82,11 @@ class SignalHandler(object):
         signal.signal(signal.SIGTERM, self.interrupt)
         self.logger = logger
 
+
+    def dontinterrupt(self, *args):
+        self.logger.info(f'Caught signal {args[0]} but not interrupting')
+        self.run = True
+
     def interrupt(self, *args):
         self.logger.info(f'Caught signal {args[0]}')
         self.run = False
@@ -101,7 +109,7 @@ class Dispatcher(object):
         self.stop_id = None
         self.current_run_id = None
         self.armed_for_id = None
-        self.default_strax_targets = 'event_positions'
+        self.default_strax_targets = 'raw_records'
 
 
     def __del__(self):
@@ -176,7 +184,8 @@ class Dispatcher(object):
 
             count_folders = len(os.listdir(self.raw_dir))
 
-            if requests.get("http://localhost/control/get_status").json()["daqstatus"]:
+            if self.DAQStatus():
+                self.logger.info(self.DAQStatus())
                 self.logger.debug("daq is now idle")
                 break
 
@@ -197,7 +206,7 @@ class Dispatcher(object):
             self.logger.debug('cleanup unnecessary folders')
             for fn in os.listdir(self.raw_dir):
                 if 'temp' in fn:
-                    shutil.rmtree(osp.join(self.raw_dir, fn))
+                    shutil.rmtree(osp.join(self.raw_dir, fn), ignore_errors=True)
             chunks = sorted(os.listdir(self.raw_dir))
             self.logger.debug(f'chunks: {len(chunks)}')
             for chunk in chunks[::-1]:
@@ -480,7 +489,6 @@ class Dispatcher(object):
 
             time.sleep(1)
             # end of while loop
-
         self.logger.info('Daqspatcher returning')
         return
 

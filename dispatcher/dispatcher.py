@@ -423,7 +423,8 @@ class Dispatcher(object):
 
     def Spatch(self):
         bool_print = True
-        self.SetStatus(active=True, status='online', msg='', goal='none')
+        run_n = 0
+        self.SetStatus(active=False, status='online', msg='', goal='none')
         self.logger.info('Spatching')
         while self.sh.run:
 
@@ -457,6 +458,17 @@ class Dispatcher(object):
                 self.logger.info('  goal:   ' + str(goal))
                 self.logger.info(" waiting for data")
 
+            if (not doc['active']) and run_n!=0:
+                run_n = 0
+            if doc['active']:
+                self.logger.info(f'Control is active, starting runs until asked to stop, iteration {run_n}')
+                if daq_status == 'idle':
+                    self.Arm(doc)
+                    run_n += 1
+                    continue
+                else:
+                    self.SetStatus(msg='Can\'t arm, daq is %s not idle' % daq_status,
+                            active=False)
             if daq_status == 'offline':
                 time.sleep(5)
                 continue
